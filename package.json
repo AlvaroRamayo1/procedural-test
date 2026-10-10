@@ -1,6 +1,6 @@
 {
   "name": "rift-robotics-lab",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --test tests/*.test.js",
-    "test:browser": "node tests/browser.mjs"
+    "test:browser": "node tests/browser.mjs && node tests/features-browser.mjs"
   },
   "dependencies": {
     "@fontsource/barlow": "^5.3.0",

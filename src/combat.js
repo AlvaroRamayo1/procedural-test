@@ -40,7 +40,8 @@ export class Combat {
     this.weaponMode = "bullet";
     this.reset();
   }
-  reset() {
+  reset(center = new THREE.Vector3()) {
+    this.center = center.clone();
     this.terrainHits = 0;
     this.missilesFired = 0;
     this.explosions = 0;
@@ -66,9 +67,9 @@ export class Combat {
     const angle = (index * Math.PI) / 3 + 0.5,
       r = 18 + rng() * 10;
     root.position.set(
-      Math.sin(angle) * r,
-      3.6 + rng() * 2,
-      Math.cos(angle) * r,
+      this.center.x + Math.sin(angle) * r,
+      this.center.y + 3.6 + rng() * 2,
+      this.center.z + Math.cos(angle) * r,
     );
     this.scene.add(root);
     root.visible = this.enabled;
@@ -120,7 +121,7 @@ export class Combat {
       health: 3,
       angle,
       radius: r,
-      baseHeight: root.position.y,
+      baseHeight: root.position.y - this.center.y,
       shootTime: 2 + index * 0.7,
       respawn: 0,
       dead: false,
@@ -252,6 +253,7 @@ export class Combat {
   }
   explode(position) {
     this.explosions++;
+    this.destruction?.blast(position);
     this.burst(position, 0xffa453, 35, 0.85);
     const mesh = new THREE.Mesh(
       new THREE.SphereGeometry(1, 16, 10),
@@ -402,7 +404,7 @@ export class Combat {
         continue;
       }
       const angle = e.angle + time * 0.025;
-      const center = playing ? robot.position : new THREE.Vector3();
+      const center = playing ? robot.position : this.center;
       const target = new THREE.Vector3(
         center.x + Math.sin(angle) * e.radius,
         center.y + e.baseHeight + Math.sin(time * 1.5 + e.angle) * 0.3,
@@ -517,6 +519,8 @@ export class Combat {
       } else if (terrainHit) {
         b.life = 0;
         this.terrainHits++;
+        if (!b.missile && terrainHit.solid?.entity)
+          this.destruction?.damage(terrainHit.solid.entity, 1, b.previous);
         this.burst(terrainHit.point, 0xccaf83, 4, 0.25);
       }
       if (b.life <= 0 || b.mesh.position.y < 0.05) {

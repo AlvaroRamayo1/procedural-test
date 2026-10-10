@@ -102,6 +102,29 @@ export class CollisionWorld {
       }
     return solid;
   }
+  remove(solid) {
+    const index = this.solids.indexOf(solid);
+    if (index < 0) return;
+    this.solids.splice(index, 1);
+    const { min, max } = solid.bounds;
+    for (
+      let x = Math.floor(min.x / this.cellSize);
+      x <= Math.floor(max.x / this.cellSize);
+      x++
+    )
+      for (
+        let z = Math.floor(min.z / this.cellSize);
+        z <= Math.floor(max.z / this.cellSize);
+        z++
+      ) {
+        const key = `${x},${z}`,
+          bucket = this.cells.get(key);
+        if (!bucket) continue;
+        const at = bucket.indexOf(solid);
+        if (at >= 0) bucket.splice(at, 1);
+        if (!bucket.length) this.cells.delete(key);
+      }
+  }
   query(x, z, radius = 0) {
     const found = new Set();
     for (

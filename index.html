@@ -26,6 +26,14 @@
             Telemetría <span class="tiny-dot"></span>
           </button>
           <button
+            id="maps-toggle"
+            class="nav-item"
+            aria-controls="map-editor"
+            aria-expanded="false"
+          >
+            Mapas
+          </button>
+          <button
             id="mobile-panel-toggle"
             class="nav-item"
             aria-label="Mostrar ajustes"
@@ -259,6 +267,14 @@
         </div>
         <div class="scene-toolbar">
           <button
+            id="camera-mode"
+            title="Cambiar cámara (C)"
+            aria-label="Alternar tercera persona y órbita"
+            aria-pressed="true"
+          >
+            3P
+          </button>
+          <button
             id="camera-reset"
             title="Restablecer cámara"
             aria-label="Restablecer cámara"
@@ -303,7 +319,7 @@
           <i></i>
           <div>
             <span class="mouse-icon">↔</span
-            ><span>Arrastrar para orbitar</span>
+            ><span>Mouse: mirar · C: cámara</span>
           </div>
           <div><span class="mouse-icon">↕</span><span>Zoom</span></div>
         </div>
@@ -352,6 +368,9 @@
           Ⅱ <span>Pausar</span>
         </button>
       </div>
+      <button id="mouse-capture" class="mouse-capture" hidden>
+        Capturar mouse · Continuar
+      </button>
       <div id="loading">
         <div class="loading-mark">RIFT<span>LAB</span></div>
         <div class="loading-track"><span></span></div>

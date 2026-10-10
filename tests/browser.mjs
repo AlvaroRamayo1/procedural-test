@@ -41,7 +41,7 @@ try {
     )
       externalRequests.push(r.url());
   });
-  await page.goto("http://127.0.0.1:5174/?quality=low");
+  await page.goto("http://127.0.0.1:5174/?quality=low&camera=orbit");
   await page.waitForFunction(
     () =>
       window.rift &&

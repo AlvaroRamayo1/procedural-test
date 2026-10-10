@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { seededRandom } from "./kinematics.js";
 import { CollisionWorld } from "./collision.js";
+import { DestructionSystem } from "./destruction.js";
 
 const rand = seededRandom(71);
 const material = (color, roughness = 1, metalness = 0) =>
@@ -96,6 +97,7 @@ function groundMark(text, width = 8, height = 2.3) {
   return m;
 }
 function pylon(parent, x, z, scale = 1) {
+  const cables = [];
   const group = new THREE.Group();
   group.position.set(x, 0, z);
   group.scale.setScalar(scale);
@@ -135,12 +137,15 @@ function pylon(parent, x, z, scale = 1) {
       );
   }
   for (const side of [-1, 1])
-    cable(
-      parent,
-      new THREE.Vector3(x + side * 4 * scale, 19 * scale, z),
-      new THREE.Vector3(x + side * 4 * scale, 18 * scale, z - 44),
-      3,
+    cables.push(
+      cable(
+        parent,
+        new THREE.Vector3(x + side * 4 * scale, 19 * scale, z),
+        new THREE.Vector3(x + side * 4 * scale, 18 * scale, z - 44),
+        3,
+      ),
     );
+  return { root: group, cables };
 }
 function cable(parent, a, b, sag) {
   const pts = [];
@@ -154,9 +159,12 @@ function cable(parent, a, b, sag) {
     );
   }
   const geo = new THREE.BufferGeometry().setFromPoints(pts);
-  parent.add(
-    new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x373e32 })),
+  const line = new THREE.Line(
+    geo,
+    new THREE.LineBasicMaterial({ color: 0x373e32 }),
   );
+  parent.add(line);
+  return line;
 }
 function ruins(parent, collision) {
   for (let i = 0; i < 42; i++) {
@@ -221,6 +229,7 @@ function ruins(parent, collision) {
 export function createWorld(scene) {
   const terrain = new THREE.Group();
   const collision = new CollisionWorld();
+  const destruction = new DestructionSystem(collision);
   for (const [min, max] of [
     [
       [-150, -5, -150],
@@ -254,7 +263,7 @@ export function createWorld(scene) {
   );
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
-  terrain.add(ground);
+  scene.add(ground);
   // A worn concrete service apron remains perfectly level for reproducible gait tests.
   box(terrain, road, 0, -0.09, 0, 31, 0.16, 31);
   const markings = new THREE.Group();
@@ -646,9 +655,19 @@ export function createWorld(scene) {
   dish.position.set(0, 9, 0);
   dish.rotation.x = -0.7;
   radar.add(dish);
-  pylon(terrain, -40, -33, 1.15);
-  pylon(terrain, -40, -77, 1.1);
-  pylon(terrain, 49, -70, 0.95);
+  for (const [i, [x, z, size]] of [
+    [-40, -33, 1.15],
+    [-40, -77, 1.1],
+    [49, -70, 0.95],
+  ].entries()) {
+    const tower = pylon(terrain, x, z, size);
+    destruction.add(
+      tower.root,
+      `antenna-${i}`,
+      "Torre de comunicaciones",
+      tower.cables,
+    );
+  }
   ruins(terrain, collision);
   for (let i = 0; i < 100; i++) {
     const angle = rand() * Math.PI * 2,
@@ -706,6 +725,7 @@ export function createWorld(scene) {
     pieces = [];
   terrain.traverse((object) => {
     if (object.isMesh && object.geometry === unitBox) {
+      if (object.userData.dynamic) return;
       const bounds = new THREE.Box3().setFromObject(object);
       if (
         !object.userData.noCollision &&
@@ -849,7 +869,7 @@ export function createWorld(scene) {
           depthWrite: false,
         }),
       );
-      scene.add(puff);
+      terrain.add(puff);
       smoke.push({ puff, x, z, phase: i / 9 });
     }
     for (let i = 0; i < 3; i++) {
@@ -864,7 +884,7 @@ export function createWorld(scene) {
         }),
       );
       flame.position.set(x + (i - 1) * 0.45, 0.7, z);
-      scene.add(flame);
+      terrain.add(flame);
       flames.push(flame);
     }
   }
@@ -929,5 +949,14 @@ export function createWorld(scene) {
       flames[i].scale.set(1.4 * pulse, 2.7 * pulse, 1);
     }
   }
-  return { grid, setWeather, update, ground, collision, pointsOfInterest };
+  return {
+    terrain,
+    destruction,
+    grid,
+    setWeather,
+    update,
+    ground,
+    collision,
+    pointsOfInterest,
+  };
 }
