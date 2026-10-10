@@ -1440,3 +1440,348 @@ body.paused .pill {
     animation: none;
   }
 }
+
+/* Exploration layout: the world fills the screen; the lab is an optional drawer. */
+#app {
+  min-height: 0;
+}
+.scene-ui {
+  left: 0;
+}
+.lab-panel {
+  display: none;
+  left: auto;
+  right: 24px;
+  top: 96px;
+  width: 302px;
+  max-height: calc(100dvh - 120px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #8c937940 transparent;
+}
+.lab-panel.open {
+  display: block;
+}
+.topbar {
+  height: 70px;
+  background: #171c17d6;
+  backdrop-filter: blur(10px);
+}
+.topbar nav {
+  gap: 27px;
+}
+.brand-caption {
+  display: none;
+}
+#mobile-panel-toggle {
+  display: block;
+  position: static;
+  background: none;
+  color: #aeb89f;
+  border: 0;
+  width: auto;
+  height: 100%;
+  font: inherit;
+  font-size: 12px;
+  padding: 0;
+}
+#mobile-panel-toggle .tiny-dot {
+  font-size: 10px;
+  width: auto;
+  height: auto;
+  background: none;
+  color: var(--orange);
+}
+#mobile-panel-toggle[aria-expanded="true"] {
+  color: var(--orange);
+}
+.scene-ui {
+  top: 70px;
+}
+.scene-heading {
+  left: 30px;
+  top: 30px;
+}
+.scene-heading h2 {
+  font-size: 32px;
+}
+.scene-heading p {
+  font-size: 8px;
+}
+.scene-coordinates {
+  top: 30px;
+}
+.altitude-hud {
+  position: absolute;
+  top: 105px;
+  right: 29px;
+  display: flex;
+  flex-direction: column;
+  text-align: right;
+  gap: 5px;
+}
+.altitude-hud small {
+  font: 8px var(--mono);
+  color: #b2b8a6;
+  letter-spacing: 1.3px;
+}
+.altitude-hud strong {
+  font: 500 30px var(--display);
+  letter-spacing: 1px;
+}
+.altitude-hud span {
+  font: 7px var(--mono);
+  color: #b2bda4;
+  letter-spacing: 0.5px;
+}
+.play-hud {
+  top: 181px;
+}
+.unit-dock {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px;
+  background: #1d241cdd;
+  border: 1px solid #adb99d38;
+  backdrop-filter: blur(12px);
+  z-index: 6;
+}
+.quick-units {
+  display: flex;
+  gap: 4px;
+}
+.unit-tab {
+  height: 39px;
+  background: #12190e40;
+  border: 1px solid #a9b89625;
+  padding: 0 13px;
+  color: #b7c2a9;
+  font: 9px var(--mono);
+  letter-spacing: 0.7px;
+  white-space: nowrap;
+}
+.unit-tab kbd {
+  font: 7px var(--mono);
+  color: #829071;
+  margin-right: 4px;
+}
+.unit-tab.selected {
+  background: #e4a26215;
+  color: var(--orange);
+  border-color: #e4a26280;
+}
+.unit-tab:hover {
+  border-color: var(--orange);
+}
+.unit-dock .primary-button {
+  width: auto;
+  min-width: 187px;
+  height: 39px;
+}
+.unit-dock .primary-button kbd {
+  margin-left: 10px;
+}
+.dock-tool {
+  height: 39px;
+  min-width: 38px;
+  background: #18201650;
+  border: 1px solid #a9b89625;
+  color: #b0bda0;
+  padding: 0 11px;
+  font-size: 15px;
+}
+.dock-tool span {
+  font-size: 10px;
+  margin-left: 5px;
+}
+.dock-tool:hover {
+  color: var(--orange);
+  border-color: #e4a26260;
+}
+.controls-strip {
+  bottom: 94px;
+  left: 25%;
+  right: 25%;
+  padding-top: 12px;
+  border: 0;
+  gap: 17px;
+}
+.compass {
+  bottom: 130px;
+}
+.scene-toolbar {
+  bottom: 126px;
+}
+.unit-marker {
+  right: 12%;
+  bottom: 31%;
+}
+.status-toast {
+  bottom: 184px;
+}
+.flight-hint,
+.touch-flight {
+  display: none !important;
+}
+body.drone .flight-hint {
+  display: flex !important;
+}
+body.drone .touch-flight {
+  display: flex !important;
+  flex-direction: column;
+  gap: 5px;
+}
+.telemetry-panel {
+  top: 235px;
+}
+@media (max-width: 1100px) {
+  .controls-strip {
+    left: 10%;
+    right: 10%;
+  }
+  .dock-tool span {
+    display: none;
+  }
+  .unit-tab {
+    padding: 0 10px;
+  }
+  .topbar {
+    gap: 32px;
+  }
+}
+@media (max-width: 650px) {
+  .topbar {
+    height: 62px;
+    padding: 0 14px;
+    gap: 15px;
+  }
+  .topbar nav {
+    gap: 14px;
+  }
+  .nav-item,
+  #mobile-panel-toggle {
+    font-size: 9px;
+    white-space: nowrap;
+  }
+  .brand strong {
+    font-size: 24px;
+  }
+  .brand svg {
+    width: 20px;
+  }
+  .brand strong > span {
+    display: none;
+  }
+  .header-status {
+    gap: 0;
+  }
+  #fps {
+    display: none;
+  }
+  .scene-ui {
+    top: 62px;
+  }
+  .scene-heading {
+    left: 18px;
+    top: 24px;
+  }
+  .scene-heading h2 {
+    font-size: 28px;
+  }
+  .scene-heading .eyebrow {
+    font-size: 7px;
+  }
+  .scene-heading p {
+    font-size: 6px;
+  }
+  .scene-coordinates {
+    right: 17px;
+  }
+  .altitude-hud {
+    top: 72px;
+    right: 17px;
+  }
+  .altitude-hud strong {
+    font-size: 27px;
+  }
+  .altitude-hud span {
+    font-size: 6px;
+  }
+  .play-hud {
+    top: 159px;
+  }
+  .lab-panel {
+    right: 12px;
+    left: auto;
+    top: 73px;
+    width: 286px;
+    max-height: calc(100dvh - 85px);
+  }
+  .unit-dock {
+    left: 12px;
+    right: 12px;
+    transform: none;
+    bottom: 17px;
+    padding: 7px;
+    gap: 5px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .quick-units {
+    width: 100%;
+  }
+  .unit-tab {
+    flex: 1;
+    height: 29px;
+    padding: 0 8px;
+    font-size: 8px;
+  }
+  .unit-dock .primary-button {
+    flex: 1;
+    min-width: 145px;
+    height: 31px;
+    font-size: 10px;
+  }
+  .unit-dock .primary-button kbd {
+    font-size: 6px;
+  }
+  .dock-tool {
+    height: 31px;
+  }
+  .controls-strip {
+    display: none;
+  }
+  .compass {
+    bottom: 127px;
+  }
+  .scene-toolbar {
+    bottom: 267px;
+    right: 15px;
+  }
+  body.playing #touch-controls {
+    bottom: 164px;
+  }
+  .status-toast {
+    bottom: 263px;
+  }
+  .unit-marker {
+    display: none;
+  }
+  .telemetry-panel {
+    top: 198px;
+  }
+  .vignette {
+    background: linear-gradient(
+      0deg,
+      #10180bd9,
+      transparent 30%,
+      transparent 75%,
+      #10180b30
+    );
+  }
+}

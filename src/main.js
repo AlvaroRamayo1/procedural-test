@@ -49,6 +49,13 @@ controls.minDistance = 8;
 controls.maxDistance = 65;
 controls.maxPolarAngle = Math.PI * 0.47;
 controls.enablePan = false;
+let desiredCameraDistance = 18.75,
+  orbitInteracting = false;
+controls.addEventListener("start", () => (orbitInteracting = true));
+controls.addEventListener("end", () => {
+  orbitInteracting = false;
+  desiredCameraDistance = camera.position.distanceTo(controls.target);
+});
 const world = createWorld(scene);
 const qualities = ["low", "medium", "high"];
 let quality = new URLSearchParams(location.search).get("quality") || "medium";
@@ -68,7 +75,8 @@ function setQuality(value) {
   resize();
 }
 setQuality(quality);
-let robot = new Robot(scene, "strider");
+const surface = (x, z, ceiling) => world.collision.heightAt(x, z, ceiling);
+let robot = new Robot(scene, "strider", new THREE.Vector3(), surface);
 robot.yaw = 2.7;
 robot.replant();
 const params = { speed: 1, stride: 1.4, lift: 0.8, ik: true };
@@ -86,15 +94,19 @@ let toastTimer,
   aimPoint = new THREE.Vector3(),
   pointer = new THREE.Vector2(),
   hasPointer = false;
-const combat = new Combat(scene, (kind) => {
-  if (kind === "target") toast("OBJETIVO NEUTRALIZADO · +1");
-  if (kind === "emp") toast("PULSO EMP · RADIO 22 M");
-  if (kind === "damage" && robot.health <= 0) {
-    setPlaying(false);
-    toast("UNIDAD FUERA DE SERVICIO · REINICIA PARA VOLVER");
-    $("unit-state").textContent = "FUERA DE SERVICIO";
-  }
-});
+const combat = new Combat(
+  scene,
+  (kind) => {
+    if (kind === "target") toast("OBJETIVO NEUTRALIZADO · +1");
+    if (kind === "emp") toast("PULSO EMP · RADIO 22 M");
+    if (kind === "damage" && robot.health <= 0) {
+      setPlaying(false);
+      toast("UNIDAD FUERA DE SERVICIO · REINICIA PARA VOLVER");
+      $("unit-state").textContent = "FUERA DE SERVICIO";
+    }
+  },
+  world.collision,
+);
 
 function toast(message) {
   $("toast").textContent = message;
@@ -106,18 +118,12 @@ function cameraReset() {
   camera.position.copy(robot.position).add(new THREE.Vector3(11, 7.8, 14));
   controls.target.copy(robot.position).add(new THREE.Vector3(0, 1.9, 0));
   controls.update();
+  desiredCameraDistance = camera.position.distanceTo(controls.target);
 }
 function resize() {
   renderer.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;
-  camera.setViewOffset(
-    innerWidth,
-    innerHeight,
-    innerWidth > 650 ? -innerWidth * 0.105 : 0,
-    0,
-    innerWidth,
-    innerHeight,
-  );
+  camera.clearViewOffset();
   camera.updateProjectionMatrix();
 }
 cameraReset();
@@ -145,8 +151,19 @@ function setPlaying(playing) {
   if (playing) {
     setPaused(false);
     $("lab-panel").classList.remove("open");
+    $("mobile-panel-toggle").setAttribute("aria-expanded", "false");
     canvas.focus({ preventScroll: true });
-    toast("CONTROL MANUAL · WASD PARA MOVER · ESC PARA SALIR");
+    const center = robot.position
+      .clone()
+      .add(new THREE.Vector3(0, robot.config.height * 0.85, 0));
+    const correction = center.sub(controls.target);
+    controls.target.add(correction);
+    camera.position.add(correction);
+    toast(
+      robot.type === "wasp"
+        ? "WASD · Q SUBIR · E BAJAR · ESC SALIR"
+        : "WASD PARA MOVER · SIGUE LAS RAMPAS AMARILLAS",
+    );
   } else robot.velocity.set(0, 0, 0);
 }
 function setPaused(paused) {
@@ -168,7 +185,7 @@ function selectRobot(type) {
   const pos = robot.position.clone(),
     oldYaw = robot.yaw;
   robot.dispose();
-  robot = new Robot(scene, type, pos);
+  robot = new Robot(scene, type, pos, surface);
   robot.yaw = oldYaw;
   robot.replant();
   robot.setDebug($("debug").checked);
@@ -180,10 +197,12 @@ function selectRobot(type) {
   $("scene-unit-name").textContent = c.name;
   $("scene-unit-id").textContent = `RFT — ${c.id}`;
   $("telemetry-name").textContent = `${c.name} / ${c.id}`;
-  document.querySelectorAll(".robot-card").forEach((b) => {
+  document.body.classList.toggle("drone", type === "wasp");
+  document.querySelectorAll("[data-robot]").forEach((b) => {
     b.classList.toggle("selected", b.dataset.robot === type);
     b.setAttribute("aria-pressed", String(b.dataset.robot === type));
   });
+  if (state.playing) canvas.focus({ preventScroll: true });
   for (const id of ["stride", "lift", "ik"]) $(id).disabled = type === "wasp";
   robot.velocity.set(0, 0, 0);
   toast(
@@ -267,11 +286,15 @@ $("fps").addEventListener("click", () => {
     `CALIDAD GRÁFICA · ${{ low: "LIGERA", medium: "EQUILIBRADA", high: "ALTA" }[quality]}`,
   );
 });
-$("mobile-panel-toggle").addEventListener("click", () =>
-  $("lab-panel").classList.toggle("open"),
-);
+function toggleSettings() {
+  const open = $("lab-panel").classList.toggle("open");
+  $("mobile-panel-toggle").setAttribute("aria-expanded", String(open));
+}
+$("mobile-panel-toggle").addEventListener("click", toggleSettings);
 document.querySelectorAll("[data-view]").forEach((b) =>
   b.addEventListener("click", () => {
+    $("lab-panel").classList.remove("open");
+    $("mobile-panel-toggle").setAttribute("aria-expanded", "false");
     state.view = b.dataset.view;
     $("telemetry-panel").hidden = state.view !== "telemetry";
     document
@@ -296,8 +319,13 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "Escape") {
     setPlaying(false);
     $("lab-panel").classList.remove("open");
+    $("mobile-panel-toggle").setAttribute("aria-expanded", "false");
   }
   if (e.code === "KeyP" && !e.repeat) setPaused(!state.paused);
+  if (e.code === "KeyI" && !e.repeat) toggleSettings();
+  if (e.code === "KeyR" && !e.repeat) $("reset").click();
+  if (!e.repeat && ["Digit1", "Digit2", "Digit3"].includes(e.code))
+    selectRobot(["strider", "mantis", "wasp"][Number(e.code.slice(-1)) - 1]);
   if (e.code === "Space" && state.playing && !state.paused && !e.repeat) {
     if (!combat.pulse(robot))
       toast(`EMP RECARGANDO · ${combat.empCooldown.toFixed(1)} S`);
@@ -318,6 +346,8 @@ canvas.addEventListener("pointermove", (e) => {
   hasPointer = true;
 });
 canvas.addEventListener("pointerdown", (e) => {
+  $("lab-panel").classList.remove("open");
+  $("mobile-panel-toggle").setAttribute("aria-expanded", "false");
   if (e.button === 0 && state.playing) {
     holdingFire = true;
     pointer.set(
@@ -348,8 +378,7 @@ document.querySelectorAll("#touch-controls button").forEach((button) => {
   button.addEventListener("pointercancel", release);
 });
 
-const raycaster = new THREE.Raycaster(),
-  groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const raycaster = new THREE.Raycaster();
 const samples = [];
 let telemetryTimer = 0,
   frameCount = 0,
@@ -359,7 +388,15 @@ function updateTelemetry(dt) {
   if (telemetryTimer < 0.15) return;
   telemetryTimer = 0;
   $("coordinates").textContent =
-    `X ${robot.position.x >= 0 ? "+" : ""}${robot.position.x.toFixed(1)} / Z ${robot.position.z >= 0 ? "+" : ""}${robot.position.z.toFixed(1)}`;
+    `X ${robot.position.x.toFixed(1)} / Z ${robot.position.z.toFixed(1)}`;
+  $("altitude").textContent =
+    `${(robot.type === "wasp" ? robot.position.y + robot.config.height : robot.position.y).toFixed(1)} M`;
+  $("ground-state").textContent =
+    robot.type === "wasp"
+      ? "VUELO VECTORIAL"
+      : robot.grounded
+        ? "APOYO EN SUPERFICIE"
+        : "EN CAÍDA";
   $("health-text").textContent = `${robot.health}%`;
   $("health-bar").style.width = `${robot.health}%`;
   $("health-bar").style.background = robot.health < 30 ? "#e79a71" : "#abc294";
@@ -422,6 +459,11 @@ function movement(dt) {
           params.speed *
           (keys.has("ShiftLeft") || keys.has("ShiftRight") ? 1.7 : 1),
       );
+    if (robot.type === "wasp")
+      desired.y =
+        ((keys.has("KeyQ") ? 1 : 0) - (keys.has("KeyE") ? 1 : 0)) *
+        5 *
+        params.speed;
     robot.velocity.lerp(desired, 1 - Math.exp(-dt * 4));
   } else if (robot.health > 0) {
     state.autoTime += dt;
@@ -437,10 +479,27 @@ function movement(dt) {
     );
   } else robot.velocity.set(0, 0, 0);
   const previous = robot.position.clone();
-  robot.position.addScaledVector(robot.velocity, dt);
-  robot.position.x = clamp(robot.position.x, -117, 117);
-  robot.position.z = clamp(robot.position.z, -117, 117);
-  if (robot.velocity.lengthSq() > 0.4) {
+  const wasGrounded = robot.grounded;
+  const result =
+    robot.type === "wasp"
+      ? world.collision.moveDrone(robot.position, robot.velocity, dt, {
+          height: robot.config.height,
+          radius: 2.45,
+        })
+      : world.collision.moveWalker(robot.position, robot.velocity, dt, {
+          radius: robot.type === "mantis" ? 1.35 : 1.6,
+          height: robot.config.height + 2.35,
+          verticalVelocity: robot.verticalVelocity,
+        });
+  robot.position.copy(result.position);
+  robot.grounded = result.grounded;
+  robot.verticalVelocity = result.verticalVelocity;
+  robot.blocked = result.blocked;
+  for (const axis of ["x", "z"])
+    if (result.blocked[axis]) robot.velocity[axis] = 0;
+  if (robot.type === "wasp" && result.blocked.y) robot.velocity.y = 0;
+  if (robot.grounded && !wasGrounded) robot.replant();
+  if (Math.hypot(robot.velocity.x, robot.velocity.z) > 0.6) {
     const desiredYaw = Math.atan2(-robot.velocity.x, -robot.velocity.z);
     const delta =
       THREE.MathUtils.euclideanModulo(
@@ -482,15 +541,10 @@ function animate(now) {
     robot.update(dt, params);
     if (state.playing) {
       raycaster.setFromCamera(
-        hasPointer
-          ? pointer
-          : new THREE.Vector2(innerWidth > 650 ? 0.21 : 0, 0),
+        hasPointer ? pointer : new THREE.Vector2(0, 0),
         camera,
       );
-      const groundPoint = raycaster.ray.intersectPlane(
-        groundPlane,
-        new THREE.Vector3(),
-      );
+      const groundPoint = world.collision.raycast(raycaster.ray, 180)?.point;
       aimPoint =
         combat.aim(raycaster.ray, groundPoint) ||
         robot.position
@@ -509,6 +563,57 @@ function animate(now) {
   }
   if (!state.paused) world.update(realDt, state.time, robot.position);
   controls.update();
+  // Pull the orbit camera in before a wall can pass between it and the unit.
+  let cameraDirection = camera.position
+    .clone()
+    .sub(controls.target)
+    .normalize();
+  const cameraDistance = camera.position.distanceTo(controls.target),
+    wanted = orbitInteracting ? cameraDistance : desiredCameraDistance;
+  let cameraHit = world.collision.raycast(
+    new THREE.Ray(controls.target.clone(), cameraDirection),
+    wanted,
+  );
+  // Prefer a lower orbit angle beneath a ceiling over zooming into the chassis.
+  if (cameraHit && cameraHit.distance < 6) {
+    const horizontal = cameraDirection.clone().setY(0).normalize();
+    for (const slope of [0.08, 0.2, 0.55]) {
+      const direction = horizontal.clone().setY(slope).normalize();
+      const hit = world.collision.raycast(
+        new THREE.Ray(controls.target.clone(), direction),
+        wanted,
+      );
+      if (!hit || hit.distance > 8) {
+        cameraDirection = direction;
+        cameraHit = hit;
+        break;
+      }
+    }
+  }
+  const available = cameraHit
+    ? Math.min(wanted, Math.max(1.5, cameraHit.distance - 0.35))
+    : wanted;
+  const nextDistance =
+    available < cameraDistance
+      ? available
+      : THREE.MathUtils.lerp(
+          cameraDistance,
+          available,
+          1 - Math.exp(-realDt * 4),
+        );
+  camera.position
+    .copy(controls.target)
+    .addScaledVector(cameraDirection, nextDistance);
+  camera.lookAt(controls.target);
+  state.cameraObstruction = cameraHit
+    ? {
+        id: cameraHit.solid?.id,
+        distance: cameraHit.distance,
+        bounds: cameraHit.solid?.bounds.min
+          .toArray()
+          .concat(cameraHit.solid.bounds.max.toArray()),
+      }
+    : null;
   updateTelemetry(realDt);
   renderer.render(scene, camera);
 }
@@ -536,6 +641,20 @@ window.rift = {
     empCooldown: combat.empCooldown,
     bullets: combat.bullets.length,
     fps: state.fps,
+    grounded: robot.grounded,
+    altitude:
+      robot.position.y + (robot.type === "wasp" ? robot.config.height : 0),
+    blocked: robot.blocked || {},
+    terrainHits: combat.terrainHits,
+    scene: "ruined-district",
+  }),
+  heightAt: (x, z, ceiling) => surface(x, z, ceiling),
+  getLandmarks: () => world.pointsOfInterest.map((p) => ({ ...p })),
+  getCamera: () => ({
+    position: camera.position.toArray(),
+    target: controls.target.toArray(),
+    distance: camera.position.distanceTo(controls.target),
+    obstruction: state.cameraObstruction,
   }),
   getTargets: () =>
     combat.enemies
@@ -548,6 +667,14 @@ window.rift = {
           screen: [((p.x + 1) / 2) * innerWidth, ((1 - p.y) / 2) * innerHeight],
           visible:
             p.z > -1 && p.z < 1 && Math.abs(p.x) < 1 && Math.abs(p.y) < 1,
+          unobstructed: (() => {
+            const direction = e.root.position.clone().sub(camera.position),
+              distance = direction.length();
+            return !world.collision.raycast(
+              new THREE.Ray(camera.position.clone(), direction.normalize()),
+              Math.max(0, distance - 1.4),
+            );
+          })(),
         };
       }),
 };

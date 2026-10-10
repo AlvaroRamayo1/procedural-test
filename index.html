@@ -25,6 +25,15 @@
           ><button class="nav-item" data-view="telemetry">
             Telemetría <span class="tiny-dot"></span>
           </button>
+          <button
+            id="mobile-panel-toggle"
+            class="nav-item"
+            aria-label="Mostrar ajustes"
+            aria-expanded="false"
+            aria-controls="lab-panel"
+          >
+            Ajustes <span class="tiny-dot">⚙</span>
+          </button>
         </nav>
         <div class="header-status">
           <span class="status-dot"></span><span>SIMULACIÓN EN LÍNEA</span><i></i
@@ -177,19 +186,9 @@
             ><input id="targets" type="checkbox" checked /><span></span
           ></label>
         </div>
-        <div class="panel-actions">
-          <button id="deploy" class="primary-button">
-            <svg viewBox="0 0 20 20"><path d="m7 4 9 6-9 6z" /></svg
-            ><span>Pilotar unidad</span><kbd>ENTER</kbd>
-          </button>
-          <div class="secondary-actions">
-            <button id="reset">↺ <span>Reiniciar</span></button
-            ><button id="pause">Ⅱ <span>Pausar</span></button>
-          </div>
-        </div>
         <div class="panel-foot">
           <span class="status-dot"></span> MOTOR PROCEDURAL
-          <span class="mono">v0.1</span>
+          <span class="mono">v0.2</span>
         </div>
       </aside>
 
@@ -198,13 +197,19 @@
           <span class="eyebrow"
             ><span class="amber-dot"></span> SANDBOX ABIERTO</span
           >
-          <h2>El silencio después<br />de las máquinas.</h2>
-          <p>SECTOR 07 <span>/</span> TIERRAS MUERTAS</p>
+          <h2>Donde cayó<br />la ciudad.</h2>
+          <p>SECTOR 07 <span>/</span> DISTRITO INDUSTRIAL</p>
         </div>
         <div class="scene-coordinates mono">
           <span>CAMPO DE PRUEBAS</span
           ><strong id="coordinates">X +00.0 / Z +00.0</strong
-          ><span><i class="status-dot"></i> TERRENO PLANO · 240 × 240 M</span>
+          ><span
+            ><i class="status-dot"></i> RUINAS EXPLORABLES · 240 × 240 M</span
+          >
+        </div>
+        <div class="altitude-hud">
+          <small>ALTITUD</small><strong id="altitude">0.0 M</strong
+          ><span id="ground-state">APOYO EN SUPERFICIE</span>
         </div>
         <div class="unit-marker">
           <span class="marker-line"></span>
@@ -291,6 +296,9 @@
           <div><kbd>SHIFT</kbd><span>Correr</span></div>
           <div><kbd>CLIC</kbd><span>Disparar</span></div>
           <div><kbd>ESPACIO</kbd><span>Pulso EMP</span></div>
+          <div class="flight-hint">
+            <kbd>Q / E</kbd><span>Subir / bajar</span>
+          </div>
           <i></i>
           <div>
             <span class="mouse-icon">↔</span
@@ -299,6 +307,41 @@
           <div><span class="mouse-icon">↕</span><span>Zoom</span></div>
         </div>
       </main>
+      <div class="unit-dock" aria-label="Controles de unidad">
+        <div class="quick-units">
+          <button
+            class="unit-tab selected"
+            data-robot="strider"
+            aria-pressed="true"
+          >
+            <kbd>1</kbd> STRIDER</button
+          ><button class="unit-tab" data-robot="mantis" aria-pressed="false">
+            <kbd>2</kbd> MANTIS</button
+          ><button class="unit-tab" data-robot="wasp" aria-pressed="false">
+            <kbd>3</kbd> WASP
+          </button>
+        </div>
+        <button id="deploy" class="primary-button">
+          <svg viewBox="0 0 20 20"><path d="m7 4 9 6-9 6z" /></svg
+          ><span>Pilotar unidad</span><kbd>ENTER</kbd>
+        </button>
+        <button
+          id="reset"
+          class="dock-tool"
+          aria-label="Reiniciar campo"
+          title="Reiniciar (R)"
+        >
+          ↺ <span>Reiniciar</span>
+        </button>
+        <button
+          id="pause"
+          class="dock-tool"
+          aria-label="Pausar simulación"
+          title="Pausar (P)"
+        >
+          Ⅱ <span>Pausar</span>
+        </button>
+      </div>
       <div id="loading">
         <div class="loading-mark">RIFT<span>LAB</span></div>
         <div class="loading-track"><span></span></div>
@@ -311,9 +354,6 @@
           navegador y vuelve a cargar.
         </p>
       </div>
-      <button id="mobile-panel-toggle" aria-label="Mostrar configuración">
-        ⚙
-      </button>
       <div id="touch-controls" aria-label="Controles táctiles">
         <div class="touch-directions">
           <button data-key="KeyW" aria-label="Avanzar">↑</button
@@ -322,6 +362,10 @@
           ><button data-key="KeyD" aria-label="Mover a la derecha">→</button>
         </div>
         <div class="touch-actions">
+          <div class="touch-flight">
+            <button data-key="KeyQ">SUBIR ↑</button
+            ><button data-key="KeyE">BAJAR ↓</button>
+          </div>
           <button data-action="fire">DISPARAR</button
           ><button data-action="emp">EMP</button
           ><button data-action="exit">SALIR</button>

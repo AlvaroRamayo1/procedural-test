@@ -22,9 +22,11 @@ const sphereGeo = new THREE.SphereGeometry(1, 10, 8),
   boxGeo = new THREE.BoxGeometry(1, 1, 1);
 
 export class Combat {
-  constructor(scene, onEvent) {
+  constructor(scene, onEvent, collision = null) {
     this.scene = scene;
     this.onEvent = onEvent;
+    this.collision = collision;
+    this.terrainHits = 0;
     this.enemies = [];
     this.bullets = [];
     this.effects = [];
@@ -36,6 +38,7 @@ export class Combat {
     this.reset();
   }
   reset() {
+    this.terrainHits = 0;
     for (const e of this.enemies) this.scene.remove(e.root);
     this.enemies = [];
     for (const b of this.bullets) {
@@ -230,7 +233,8 @@ export class Combat {
     );
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.copy(robot.position);
-    mesh.position.y = 0.09;
+    mesh.position.y =
+      robot.position.y + (robot.type === "wasp" ? robot.config.height : 0.09);
     this.scene.add(mesh);
     this.effects.push({ mesh, life: 0.8, max: 0.8, pulse: true });
     for (const enemy of this.enemies)
@@ -256,7 +260,10 @@ export class Combat {
         );
         if (point) {
           const distance = point.distanceTo(ray.origin);
-          if (distance < closest) {
+          if (
+            distance < closest &&
+            (!groundPoint || distance < groundPoint.distanceTo(ray.origin))
+          ) {
             closest = distance;
             target = e.root.position.clone();
           }
@@ -283,14 +290,28 @@ export class Combat {
       const center = playing ? robot.position : new THREE.Vector3();
       const target = new THREE.Vector3(
         center.x + Math.sin(angle) * e.radius,
-        e.baseHeight + Math.sin(time * 1.5 + e.angle) * 0.3,
+        center.y + e.baseHeight + Math.sin(time * 1.5 + e.angle) * 0.3,
         center.z + Math.cos(angle) * e.radius,
       );
       target.x = clamp(target.x, -115, 115);
       target.z = clamp(target.z, -115, 115);
-      e.root.position.lerp(target, 1 - Math.exp(-dt * 0.5));
+      if (this.collision) {
+        const motion = target.clone().sub(e.root.position).multiplyScalar(0.5);
+        const result = this.collision.moveDrone(e.root.position, motion, dt, {
+          height: 0,
+          radius: 1.45,
+        });
+        e.root.position.copy(result.position);
+      } else e.root.position.lerp(target, 1 - Math.exp(-dt * 0.5));
       e.root.lookAt(robot.position.x, e.root.position.y, robot.position.z);
-      e.indicator.position.y = -e.root.position.y + 0.035;
+      e.indicator.position.y =
+        -e.root.position.y +
+        (this.collision?.heightAt(
+          e.root.position.x,
+          e.root.position.z,
+          e.root.position.y - 0.8,
+        ) || 0) +
+        0.035;
       for (const r of e.rotors) r.rotation.y += dt * 38;
       if (playing && robot.health > 0) {
         e.shootTime -= dt;
@@ -311,29 +332,65 @@ export class Combat {
       b.previous.copy(b.mesh.position);
       b.mesh.position.addScaledVector(b.velocity, dt);
       b.life -= dt;
-      const segment = new THREE.Line3(b.previous, b.mesh.position);
-      const closest = new THREE.Vector3();
+      const travel = b.mesh.position.clone().sub(b.previous),
+        distance = travel.length();
+      const ray = new THREE.Ray(b.previous.clone(), travel.normalize());
+      const terrainHit = this.collision?.segmentHit(
+        b.previous,
+        b.mesh.position,
+      );
+      let hitDistance = terrainHit?.distance ?? Infinity,
+        hitEnemy = null,
+        hitPlayer = false;
       if (!b.hostile) {
         for (const e of this.enemies)
           if (this.enabled && !e.dead) {
-            segment.closestPointToPoint(e.root.position, true, closest);
-            if (closest.distanceTo(e.root.position) < 1.35) {
-              this.hit(e);
-              b.life = 0;
-              break;
+            const hit = ray.intersectSphere(
+              new THREE.Sphere(e.root.position, 1.35),
+              new THREE.Vector3(),
+            );
+            if (hit) {
+              const d = hit.distanceTo(b.previous);
+              if (d <= distance && d < hitDistance) {
+                hitDistance = d;
+                hitEnemy = e;
+              }
             }
           }
       } else if (playing) {
         const body = robot.position
           .clone()
           .add(new THREE.Vector3(0, robot.config.height, 0));
-        segment.closestPointToPoint(body, true, closest);
-        if (closest.distanceTo(body) < 1.65) {
-          robot.health = Math.max(0, robot.health - 5);
-          this.burst(body, 0xffa16a, 5, 0.25);
-          b.life = 0;
-          this.onEvent("damage");
-        }
+        const hit = ray.intersectSphere(
+          new THREE.Sphere(body, 1.65),
+          new THREE.Vector3(),
+        );
+        if (
+          hit &&
+          hit.distanceTo(b.previous) <= distance &&
+          hit.distanceTo(b.previous) < hitDistance
+        )
+          hitPlayer = true;
+      }
+      if (hitEnemy) {
+        this.hit(hitEnemy);
+        b.life = 0;
+      } else if (hitPlayer) {
+        robot.health = Math.max(0, robot.health - 5);
+        this.burst(
+          robot.position
+            .clone()
+            .add(new THREE.Vector3(0, robot.config.height, 0)),
+          0xffa16a,
+          5,
+          0.25,
+        );
+        b.life = 0;
+        this.onEvent("damage");
+      } else if (terrainHit) {
+        b.life = 0;
+        this.terrainHits++;
+        this.burst(terrainHit.point, 0xccaf83, 4, 0.25);
       }
       if (b.life <= 0 || b.mesh.position.y < 0.05) {
         if (b.mesh.position.y < 0.05)

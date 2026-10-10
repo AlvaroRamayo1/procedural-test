@@ -161,11 +161,19 @@ function decal(text) {
 }
 
 export class Robot {
-  constructor(scene, type = "strider", position = new THREE.Vector3()) {
+  constructor(
+    scene,
+    type = "strider",
+    position = new THREE.Vector3(),
+    surface = () => 0,
+  ) {
     this.scene = scene;
     this.type = type;
     this.config = ROBOTS[type];
     this.position = position.clone();
+    this.surface = surface;
+    this.grounded = true;
+    this.verticalVelocity = 0;
     this.yaw = 0;
     this.speed = 0;
     this.velocity = new THREE.Vector3();
@@ -440,11 +448,35 @@ export class Robot {
     }
     this.setDebug(false);
   }
-  worldFoot(local) {
-    return new THREE.Vector3(local.x, 0, local.z)
+  worldFoot(local, lead = 0) {
+    const point = new THREE.Vector3(local.x, 0, local.z)
       .applyAxisAngle(up, this.yaw)
-      .add(this.position)
-      .setY(0.14);
+      .add(this.position);
+    point.x += this.velocity.x * lead;
+    point.z += this.velocity.z * lead;
+    let floor = this.grounded
+      ? this.surface(point.x, point.z, this.position.y + 2)
+      : this.position.y;
+    // Narrow the stance near a ledge so the landing point stays on reachable
+    // support instead of placing a foot several metres below the chassis.
+    if (this.grounded && this.position.y - floor > 1.8) {
+      const original = point.clone();
+      for (let t = 0.15; t <= 1.01; t += 0.15) {
+        point.x = THREE.MathUtils.lerp(
+          original.x,
+          this.position.x,
+          Math.min(t, 1),
+        );
+        point.z = THREE.MathUtils.lerp(
+          original.z,
+          this.position.z,
+          Math.min(t, 1),
+        );
+        floor = this.surface(point.x, point.z, this.position.y + 2);
+        if (this.position.y - floor <= 1.8) break;
+      }
+    }
+    return point.setY(floor + 0.14);
   }
   replant() {
     for (const leg of this.legs) {
@@ -463,6 +495,8 @@ export class Robot {
     this.phase = 0;
     this.lastGroup = -1;
     this.health = 100;
+    this.grounded = true;
+    this.verticalVelocity = 0;
     this.replant();
     this.update(0, { speed: 1, stride: 1.4, lift: 0.8, ik: true });
   }
@@ -472,7 +506,7 @@ export class Robot {
   }
   update(dt, params) {
     this.time += dt;
-    this.speed = this.velocity.length();
+    this.speed = Math.hypot(this.velocity.x, this.velocity.z);
     this.root.position.copy(this.position);
     this.root.rotation.y = this.yaw;
     const gaitRate = (0.6 + this.speed * 0.4) * params.speed;
@@ -485,15 +519,35 @@ export class Robot {
         : Math.sin(this.phase * Math.PI * 2) *
           Math.min(0.1, this.speed * 0.018));
     const localVelocity = this.velocity.clone().applyAxisAngle(up, -this.yaw);
+    let groundPitch = 0,
+      groundRoll = 0;
+    if (this.type !== "wasp" && this.grounded) {
+      const front = this.worldFoot(new THREE.Vector3(0, 0, -1.8)),
+        back = this.worldFoot(new THREE.Vector3(0, 0, 1.8));
+      const left = this.worldFoot(new THREE.Vector3(-1.4, 0, 0)),
+        right = this.worldFoot(new THREE.Vector3(1.4, 0, 0));
+      groundPitch = THREE.MathUtils.clamp(
+        Math.atan2(front.y - back.y, 3.6),
+        -0.4,
+        0.4,
+      );
+      groundRoll = THREE.MathUtils.clamp(
+        Math.atan2(right.y - left.y, 2.8),
+        -0.3,
+        0.3,
+      );
+    }
     this.body.rotation.z = smooth(
       this.body.rotation.z,
-      -localVelocity.x * (this.type === "wasp" ? 0.04 : 0.012) + sway,
+      groundRoll -
+        localVelocity.x * (this.type === "wasp" ? 0.04 : 0.012) +
+        sway,
       5,
       dt,
     );
     this.body.rotation.x = smooth(
       this.body.rotation.x,
-      -localVelocity.z * (this.type === "wasp" ? 0.045 : 0.016),
+      groundPitch - localVelocity.z * (this.type === "wasp" ? 0.045 : 0.016),
       5,
       dt,
     );
@@ -501,13 +555,10 @@ export class Robot {
     for (const rotor of this.rotors)
       rotor.rotation.y += dt * (35 + this.speed * 3) * params.speed;
     const group = Math.floor(this.phase * 2) % 2;
-    if (group !== this.lastGroup) {
+    if (this.grounded && group !== this.lastGroup) {
       this.lastGroup = group;
       for (const leg of this.legs) {
-        const desired = this.worldFoot(leg.rest).addScaledVector(
-          this.velocity,
-          0.14,
-        );
+        const desired = this.worldFoot(leg.rest, 0.14);
         if (
           leg.group === group &&
           !leg.swing &&
@@ -523,6 +574,10 @@ export class Robot {
     }
     for (let i = 0; i < this.legs.length; i++) {
       const leg = this.legs[i];
+      if (!this.grounded) {
+        leg.swing = false;
+        leg.foot.lerp(this.worldFoot(leg.rest), 1 - Math.exp(-dt * 12));
+      }
       if (leg.swing) {
         leg.progress = Math.min(
           1,

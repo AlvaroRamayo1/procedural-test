@@ -1,16 +1,17 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { seededRandom } from "./kinematics.js";
+import { CollisionWorld } from "./collision.js";
 
 const rand = seededRandom(71);
 const material = (color, roughness = 1, metalness = 0) =>
   new THREE.MeshStandardMaterial({ color, roughness, metalness });
-const concrete = material(0x666758),
-  darkConcrete = material(0x454b40),
+const concrete = material(0x767970),
+  darkConcrete = material(0x4d5556),
   metal = material(0x40483b, 0.8, 0.6),
-  rust = material(0x776149, 0.95, 0.3),
+  rust = material(0x8c5a3d, 0.95, 0.3),
   pale = material(0xb0a586),
-  road = material(0x515548),
+  road = material(0x545651),
   yellow = material(0xa88a4a);
 const unitBox = new THREE.BoxGeometry(1, 1, 1);
 function box(parent, mat, x, y, z, w, h, d, rotation = 0) {
@@ -32,6 +33,7 @@ function beam(parent, a, b, width = 0.1, mat = metal) {
     dir.clone().normalize(),
   );
   m.scale.set(width, dir.length(), width);
+  m.userData.noCollision = true;
   parent.add(m);
   return m;
 }
@@ -210,6 +212,7 @@ function ruins(parent) {
 
 export function createWorld(scene) {
   const terrain = new THREE.Group();
+  const collision = new CollisionWorld();
   scene.add(terrain);
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(900, 900),
@@ -239,6 +242,209 @@ export function createWorld(scene) {
   const northLabel = groundMark("RIFT // TEST RANGE", 14, 1.7);
   northLabel.position.set(0, 0.025, -12.5);
   terrain.add(northLabel);
+  const pointsOfInterest = [];
+  function ramp(options) {
+    const shape = collision.addRamp(options);
+    const coords = [];
+    for (const face of shape.faces)
+      for (const index of face) coords.push(...shape.vertices[index].toArray());
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(coords, 3));
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, concrete);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    terrain.add(mesh);
+    const { x, z, axis, width, length, bottom, top, direction } = options;
+    const start = new THREE.Vector3(x, bottom, z),
+      end = new THREE.Vector3(x, top, z);
+    start[axis] -= (direction * length) / 2;
+    end[axis] += (direction * length) / 2;
+    for (const side of [-1, 1]) {
+      const a = start.clone(),
+        b = end.clone();
+      a[axis === "x" ? "z" : "x"] += side * (width / 2 - 0.2);
+      b[axis === "x" ? "z" : "x"] += side * (width / 2 - 0.2);
+      a.y += 0.025;
+      b.y += 0.025;
+      beam(terrain, a, b, 0.1, yellow);
+    }
+    return shape;
+  }
+  function sign(text, x, y, z, width = 6) {
+    box(terrain, rust, x, y, z, width, 1.55, 0.14);
+    const textMesh = groundMark(text, width - 0.3, 1.1);
+    textMesh.rotation.x = 0;
+    textMesh.position.set(x, y, z + 0.08);
+    terrain.add(textMesh);
+  }
+  function ruinedFacade(x, z, width, height) {
+    for (let level = 0; level < height; level += 7) {
+      for (let i = 0; i < 5; i++) {
+        const px = x - width / 2 + (i * width) / 4;
+        const h = level + 7 > height ? 3 : 6.5;
+        box(terrain, concrete, px, level + h / 2, z, 0.55, h, 0.65);
+        if (i < 4) {
+          box(
+            terrain,
+            darkConcrete,
+            px + width / 8,
+            level + 0.8,
+            z,
+            width / 4 - 0.55,
+            1.5,
+            0.35,
+          );
+          if ((i + level) % 3 !== 1)
+            box(
+              terrain,
+              concrete,
+              px + width / 8,
+              level + 5.4,
+              z,
+              width / 4 - 0.55,
+              0.8,
+              0.35,
+            );
+        }
+      }
+    }
+    for (let i = 0; i < 6; i++)
+      beam(
+        terrain,
+        new THREE.Vector3(x - width / 2 + (i * width) / 5, height, z),
+        new THREE.Vector3(
+          x - width / 2 + (i * width) / 5 + 0.4,
+          height + 1.1 + rand(),
+          z - 0.3,
+        ),
+        0.035,
+        metal,
+      );
+  }
+  // A navigable industrial ruin: street, first floor, upper deck, and a bridge.
+  box(terrain, concrete, 2, 6.65, -33, 30, 0.7, 14);
+  box(terrain, concrete, -9, 13.65, -33, 8, 0.7, 14);
+  ramp({
+    x: 0,
+    z: -17,
+    width: 10,
+    length: 18,
+    axis: "z",
+    direction: -1,
+    bottom: 0,
+    top: 7,
+    id: "factory-access",
+  });
+  ramp({
+    x: 4,
+    z: -33,
+    width: 7,
+    length: 18,
+    axis: "x",
+    direction: -1,
+    bottom: 7,
+    top: 14,
+    id: "upper-access",
+  });
+  for (const x of [-12, 16])
+    for (const z of [-28, -38])
+      box(terrain, concrete, x, 3.2, z, 0.9, 6.4, 0.9);
+  for (const x of [-12, -6])
+    for (const z of [-28, -38])
+      box(terrain, concrete, x, 10.3, z, 0.8, 6.6, 0.8);
+  ruinedFacade(2, -40.2, 32, 19);
+  ruinedFacade(-15, -32, 1.2, 15);
+  // The broken side wall has large gaps through which the walker can pass.
+  for (const z of [-28, -38])
+    box(terrain, darkConcrete, -14, 4.2, z, 1.2, 8.4, 3.2);
+  box(terrain, darkConcrete, 18, 4.5, -28, 1.1, 9, 2.5);
+  box(terrain, metal, 21.5, 6.83, -36, 17, 0.34, 8);
+  for (const z of [-39.9, -32.1]) {
+    beam(
+      terrain,
+      new THREE.Vector3(13, 6.6, z),
+      new THREE.Vector3(30, 6.6, z),
+      0.2,
+      rust,
+    );
+    for (const x of [15, 21, 27]) box(terrain, rust, x, 7.6, z, 0.1, 1.2, 0.1);
+    beam(
+      terrain,
+      new THREE.Vector3(13, 8.2, z),
+      new THREE.Vector3(24, 8.2, z),
+      0.07,
+      rust,
+    );
+  }
+  box(terrain, concrete, 36, 6.65, -36, 12, 0.7, 18);
+  for (const x of [30.5, 41.5])
+    for (const z of [-28, -44]) box(terrain, concrete, x, 3.2, z, 1, 6.4, 1);
+  ruinedFacade(36, -45, 14, 21);
+  box(terrain, darkConcrete, 42.3, 8, -36, 0.6, 16, 18);
+  box(terrain, concrete, 36, 16.6, -42, 12, 0.8, 6);
+  const fallen = box(terrain, concrete, 39, 14.2, -29, 7, 0.6, 4);
+  fallen.rotation.z = 0.3;
+  fallen.rotation.x = -0.2;
+  // A lower warehouse provides a gentler route and a broad landing area.
+  box(terrain, concrete, 32, 3.65, 0, 18, 0.7, 14);
+  ramp({
+    x: 32,
+    z: 14,
+    width: 11,
+    length: 14,
+    axis: "z",
+    direction: -1,
+    bottom: 0,
+    top: 4,
+    id: "warehouse-access",
+  });
+  for (const x of [24, 40])
+    for (const z of [-6, 6]) box(terrain, concrete, x, 1.8, z, 0.85, 3.6, 0.85);
+  ruinedFacade(32, -7.5, 19, 11);
+  box(terrain, darkConcrete, 41.4, 3.8, 0, 0.65, 7.6, 13);
+  for (let i = 0; i < 8; i++) {
+    const rubble = box(
+      terrain,
+      i % 2 ? concrete : darkConcrete,
+      -19 - rand() * 9,
+      0.3 + rand(),
+      -24 - rand() * 18,
+      1 + rand() * 3,
+      0.5 + rand(),
+      1 + rand() * 3,
+      rand() * 3,
+    );
+    rubble.rotation.z = (rand() - 0.5) * 0.5;
+    const broken = box(
+      terrain,
+      concrete,
+      45 + rand() * 6,
+      0.3,
+      -20 - rand() * 25,
+      2 + rand() * 3,
+      0.6,
+      1 + rand() * 2,
+      rand() * 3,
+    );
+    broken.rotation.z = 0.15;
+  }
+  sign("07 / ACCESO", -8, 1.8, -7, 6);
+  sign("NIVEL 02", -8, 15.4, -40, 5);
+  sign("ALMACÉN", 32, 6, -7.15, 6);
+  pointsOfInterest.push(
+    { name: "Fábrica / rampa", x: 0, z: -8, height: 0 },
+    { name: "Terraza / nivel 01", x: 0, z: -28, height: 7 },
+    { name: "Mirador / nivel 02", x: -8, z: -33, height: 14 },
+    { name: "Almacén", x: 32, z: 0, height: 4 },
+  );
+  // Street markings direct the player toward the approach rather than a menu.
+  for (let z = -3; z > -8; z -= 1.4) {
+    const arrow = box(terrain, yellow, 0, 0.025, z, 1.5, 0.015, 0.15);
+    arrow.rotation.y = 0.3;
+    box(terrain, yellow, -0.58, 0.025, z + 0.2, 0.13, 0.015, 0.7, -0.7);
+    box(terrain, yellow, 0.58, 0.025, z + 0.2, 0.13, 0.015, 0.7, 0.7);
+  }
   // Slab seams, service rails, bollards, and wreckage in the foreground.
   for (let i = 0; i < 14; i++) {
     const x = -23 + rand() * 46,
@@ -311,12 +517,19 @@ export function createWorld(scene) {
   for (let i = 0; i < 100; i++) {
     const angle = rand() * Math.PI * 2,
       r = 24 + rand() * 70;
+    const px = Math.sin(angle) * r,
+      pz = Math.cos(angle) * r;
+    if (
+      (Math.abs(px) < 17 && pz < -5 && pz > -45) ||
+      (px > 20 && px < 44 && pz > -8 && pz < 25)
+    )
+      continue;
     const object = box(
       terrain,
       i % 3 ? darkConcrete : rust,
-      Math.sin(angle) * r,
+      px,
       0.1 + rand() * 0.2,
-      Math.cos(angle) * r,
+      pz,
       0.25 + rand() * 1.6,
       0.2 + rand() * 0.5,
       0.3 + rand() * 1.8,
@@ -355,6 +568,13 @@ export function createWorld(scene) {
     pieces = [];
   terrain.traverse((object) => {
     if (object.isMesh && object.geometry === unitBox) {
+      const bounds = new THREE.Box3().setFromObject(object);
+      if (
+        !object.userData.noCollision &&
+        bounds.max.y > 0.18 &&
+        bounds.max.y - bounds.min.y > 0.17
+      )
+        collision.addBox(bounds);
       const key = object.material.uuid;
       if (!batches.has(key))
         batches.set(key, { material: object.material, geometries: [] });
@@ -449,6 +669,62 @@ export function createWorld(scene) {
   );
   scene.add(boundary);
   scene.fog = new THREE.FogExp2(0xa1a18a, 0.0105);
+  // Layered smoke and small fires add scale and contrast without external assets.
+  const smokeCanvas = document.createElement("canvas");
+  smokeCanvas.width = 64;
+  smokeCanvas.height = 64;
+  const smokeCtx = smokeCanvas.getContext("2d"),
+    gradient = smokeCtx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gradient.addColorStop(0, "rgba(255,255,255,.7)");
+  gradient.addColorStop(0.5, "rgba(255,255,255,.3)");
+  gradient.addColorStop(1, "rgba(255,255,255,0)");
+  smokeCtx.fillStyle = gradient;
+  smokeCtx.fillRect(0, 0, 64, 64);
+  const smokeTexture = new THREE.CanvasTexture(smokeCanvas);
+  const smoke = [];
+  const flames = [];
+  for (const [x, z] of [
+    [-19, -35],
+    [46, -23],
+    [-35, 18],
+  ]) {
+    box(terrain, metal, x, 0.45, z, 3, 0.9, 2);
+    collision.addBox(
+      new THREE.Box3(
+        new THREE.Vector3(x - 1.5, 0, z - 1),
+        new THREE.Vector3(x + 1.5, 0.9, z + 1),
+      ),
+      "burned-wreck",
+    );
+    for (let i = 0; i < 9; i++) {
+      const puff = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: smokeTexture,
+          color: 0x252f31,
+          transparent: true,
+          opacity: 0.3,
+          depthWrite: false,
+        }),
+      );
+      scene.add(puff);
+      smoke.push({ puff, x, z, phase: i / 9 });
+    }
+    for (let i = 0; i < 3; i++) {
+      const flame = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: smokeTexture,
+          color: 0xff8540,
+          transparent: true,
+          opacity: 0.85,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        }),
+      );
+      flame.position.set(x + (i - 1) * 0.45, 0.7, z);
+      scene.add(flame);
+      flames.push(flame);
+    }
+  }
   function setWeather(weather) {
     const styles = {
       dusk: {
@@ -498,7 +774,17 @@ export function createWorld(scene) {
     dust.position.x = Math.sin(time * 0.03) * 7;
     sky.position.copy(position);
     sun.target.position.copy(position);
-    sun.position.set(position.x - 45, 70, position.z - 45);
+    sun.position.set(position.x - 45, position.y + 70, position.z - 45);
+    for (const { puff, x, z, phase } of smoke) {
+      const t = (time * 0.065 + phase) % 1;
+      puff.position.set(x + t * 3, 1 + t * 12, z + Math.sin(t * 4) * 0.7);
+      puff.scale.setScalar(2 + t * 5);
+      puff.material.opacity = Math.sin(t * Math.PI) * 0.28;
+    }
+    for (let i = 0; i < flames.length; i++) {
+      const pulse = 0.9 + Math.sin(time * 9 + i) * 0.16;
+      flames[i].scale.set(1.4 * pulse, 2.7 * pulse, 1);
+    }
   }
-  return { grid, setWeather, update, ground };
+  return { grid, setWeather, update, ground, collision, pointsOfInterest };
 }

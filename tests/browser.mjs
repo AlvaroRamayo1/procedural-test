@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { chromium } from "@playwright/test";
 import { createServer } from "vite";
+import { walkTo } from "./navigation.mjs";
 
 const server = await createServer({
   server: { host: "127.0.0.1", port: 5174, strictPort: true },
@@ -47,6 +48,10 @@ try {
       document.querySelector("#loading").classList.contains("done"),
   );
   const snapshot = () => page.evaluate(() => window.rift.getState());
+  const openSettings = async () => {
+    if (!(await page.locator("#lab-panel").isVisible()))
+      await page.click("#mobile-panel-toggle");
+  };
   const initial = await snapshot();
   assert.equal(initial.robot, "strider");
   assert.equal(initial.legs.length, 4);
@@ -55,6 +60,12 @@ try {
   passed(
     "3D scene starts with a centered quadruped, without runtime or shader errors",
   );
+  assert.equal(await page.locator("#lab-panel").isVisible(), false);
+  assert.equal(await page.locator(".unit-dock").isVisible(), true);
+  passed(
+    "left sidebar is removed and units are accessible from the compact dock",
+  );
+  await openSettings();
   await page.click("#targets");
   await page.click("#deploy");
   const start = (await snapshot()).position;
@@ -113,6 +124,7 @@ try {
   assert.deepEqual(still.legs, paused.legs);
   passed("pause freezes robot position and foot motion");
   await page.click("#pause");
+  await openSettings();
   await page.click("#debug");
   assert.equal((await snapshot()).debug, true);
   await page.locator("#lift").evaluate((el) => {
@@ -124,10 +136,10 @@ try {
   assert.equal((await snapshot()).params.ik, false);
   await page.click("#ik");
   passed("live gait parameters, IK comparison and joint visualization respond");
-  await page.click('[data-robot="mantis"]');
+  await page.click('.unit-tab[data-robot="mantis"]');
   assert.equal((await snapshot()).legs.length, 6);
   assert.equal((await snapshot()).robot, "mantis");
-  await page.click('[data-robot="wasp"]');
+  await page.click('.unit-tab[data-robot="wasp"]');
   assert.equal((await snapshot()).legs.length, 0);
   assert.equal(await page.locator("#lift").isDisabled(), true);
   await page.locator("#world").focus();
@@ -142,8 +154,26 @@ try {
   passed(
     "hexapod and hover drone can be selected; drone flight accepts player input",
   );
+  const initialAltitude = (await snapshot()).altitude;
+  await page.keyboard.down("KeyQ");
+  await page.waitForFunction(
+    (y) => window.rift.getState().altitude > y + 3,
+    initialAltitude,
+    { timeout: 45000 },
+  );
+  await page.keyboard.up("KeyQ");
+  await page.keyboard.down("KeyE");
+  await page.waitForFunction(
+    (y) => window.rift.getState().altitude < y + 0.5,
+    initialAltitude,
+    { timeout: 45000 },
+  );
+  await page.keyboard.up("KeyE");
+  passed("drone ascends with Q and descends with E");
+  await openSettings();
   await page.selectOption("#weather", "night");
   assert.equal((await snapshot()).weather, "night");
+  await page.click("#mobile-panel-toggle");
   await page.click("#grid-toggle");
   assert.equal((await snapshot()).grid, true);
   await page.click('[data-view="telemetry"]');
@@ -151,7 +181,8 @@ try {
   passed("weather, grid and live telemetry work");
   await page.click('[data-view="field"]');
   await page.click("#reset");
-  await page.click('[data-robot="strider"]');
+  await page.click('.unit-tab[data-robot="strider"]');
+  await openSettings();
   await page.click("#targets");
   await page.click("#deploy");
   // Aim using projected target coordinates; no test-only state mutation is used.
@@ -163,6 +194,7 @@ try {
     const target = targets.find(
       (t) =>
         t.visible &&
+        t.unobstructed &&
         t.screen[0] > 345 &&
         t.screen[0] < 940 &&
         t.screen[1] > 165 &&
@@ -192,8 +224,57 @@ try {
   assert.equal(reset.playing, false);
   assert.ok(reset.position.every((v) => Math.abs(v) < 0.5));
   passed("reset restores health, enemies, position and counters");
+  await openSettings();
+  await page.click("#targets");
+  await page.click("#deploy");
+  await page.keyboard.down("KeyW");
+  await page.keyboard.down("KeyD");
+  await page.waitForFunction(
+    () => window.rift.getState().altitude > 6.8,
+    null,
+    { timeout: 60000 },
+  );
+  await page.keyboard.up("KeyW");
+  await page.keyboard.up("KeyD");
+  const elevated = await snapshot();
+  assert.ok(elevated.steps > 15);
+  assert.ok(elevated.legs.some((l) => l.foot[1] > 6));
+  passed("walker climbs the factory ramp and plants feet on elevated surfaces");
+  await walkTo(page, 12.8, -27.3);
+  await walkTo(page, 12.8, -33);
+  await walkTo(page, -9, -33);
+  assert.ok((await snapshot()).altitude > 13.9);
+  const clearCamera = await page.evaluate(() => window.rift.getCamera());
+  assert.ok(clearCamera.distance > 12);
+  passed(
+    "walker reaches the upper lookout and camera retains a usable orbit distance",
+  );
+  await walkTo(page, 12.8, -33);
+  await walkTo(page, 12.8, -36);
+  await walkTo(page, 35, -36);
+  assert.ok(Math.abs((await snapshot()).altitude - 7) < 0.1);
+  passed(
+    "the bridge is traversable and connects two buildings at seven metres",
+  );
+  await walkTo(page, 12.8, -36);
+  await walkTo(page, 12.8, -33);
+  await walkTo(page, 12.8, -27.3);
+  await walkTo(page, 0, -27.3);
+  await page.keyboard.down("KeyS");
+  await page.keyboard.down("KeyA");
+  await page.waitForFunction(
+    () => window.rift.getState().altitude < 0.05,
+    null,
+    { timeout: 60000 },
+  );
+  await page.keyboard.up("KeyS");
+  await page.keyboard.up("KeyA");
+  passed("walker descends from the platform back to street level");
+  await page.click("#reset");
   await mkdir("test-results", { recursive: true });
+  await openSettings();
   await page.selectOption("#weather", "dusk");
+  await page.click("#mobile-panel-toggle");
   await page.screenshot({ path: "test-results/desktop.png" });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.click("#mobile-panel-toggle");
@@ -222,6 +303,24 @@ try {
   passed(
     "mobile layout exposes configuration and functional on-screen movement controls",
   );
+  await page.keyboard.press("Digit3");
+  assert.equal((await snapshot()).robot, "wasp");
+  const upButton = page.locator('[data-key="KeyQ"]');
+  assert.equal(await upButton.isVisible(), true);
+  const upBounds = await upButton.boundingBox();
+  const mobileAltitude = (await snapshot()).altitude;
+  await page.mouse.move(
+    upBounds.x + upBounds.width / 2,
+    upBounds.y + upBounds.height / 2,
+  );
+  await page.mouse.down();
+  await page.waitForFunction(
+    (y) => window.rift.getState().altitude > y + 0.8,
+    mobileAltitude,
+    { timeout: 45000 },
+  );
+  await page.mouse.up();
+  passed("mobile drone controls include functional ascent buttons");
   assert.deepEqual(errors, []);
   assert.deepEqual(externalRequests, []);
   passed("no browser errors, shader errors or external runtime asset requests");
