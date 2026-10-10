@@ -1603,6 +1603,24 @@ body.paused .pill {
   color: var(--orange);
   border-color: #e4a26260;
 }
+.weapon-tool {
+  min-width: 106px;
+  white-space: nowrap;
+  font: 8px var(--mono);
+}
+.weapon-tool kbd {
+  color: #829071;
+}
+.weapon-tool span {
+  display: inline !important;
+  font: 9px var(--mono);
+  margin-left: 3px;
+}
+.weapon-tool[aria-pressed="true"] {
+  border-color: #e4a26290;
+  color: var(--orange);
+  background: #e4a26218;
+}
 .controls-strip {
   bottom: 94px;
   left: 25%;
@@ -1752,6 +1770,10 @@ body.drone .touch-flight {
   }
   .dock-tool {
     height: 31px;
+  }
+  .weapon-tool {
+    min-width: 89px;
+    padding: 0 6px;
   }
   .controls-strip {
     display: none;

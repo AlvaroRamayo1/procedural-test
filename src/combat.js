@@ -20,6 +20,8 @@ const red = new THREE.MeshStandardMaterial({
 });
 const sphereGeo = new THREE.SphereGeometry(1, 10, 8),
   boxGeo = new THREE.BoxGeometry(1, 1, 1);
+const missileBodyGeo = new THREE.CylinderGeometry(0.13, 0.13, 1.45, 10),
+  missileNoseGeo = new THREE.ConeGeometry(0.13, 0.4, 10);
 
 export class Combat {
   constructor(scene, onEvent, collision = null) {
@@ -35,15 +37,17 @@ export class Combat {
     this.shotCooldown = 0;
     this.empCooldown = 0;
     this.soundEnabled = false;
+    this.weaponMode = "bullet";
     this.reset();
   }
   reset() {
     this.terrainHits = 0;
+    this.missilesFired = 0;
+    this.explosions = 0;
     for (const e of this.enemies) this.scene.remove(e.root);
     this.enemies = [];
     for (const b of this.bullets) {
-      this.scene.remove(b.mesh);
-      b.mesh.material.dispose();
+      this.removeProjectile(b);
     }
     this.bullets = [];
     for (const e of this.effects) {
@@ -153,13 +157,124 @@ export class Combat {
   }
   shoot(robot, point) {
     if (this.shotCooldown > 0) return false;
-    this.shotCooldown = 0.17;
+    this.shotCooldown = this.weaponMode === "missile" ? 1.1 : 0.17;
     const start = robot.muzzlePosition(),
       direction = point.clone().sub(start).normalize();
-    this.addBullet(start, direction.multiplyScalar(55), false);
+    if (this.weaponMode === "missile")
+      this.addMissile(start, direction.multiplyScalar(32));
+    else this.addBullet(start, direction.multiplyScalar(55), false);
     this.burst(start, 0xffbd6e, 3, 0.12);
-    this.sound("shot");
+    this.sound(this.weaponMode === "missile" ? "missile" : "shot");
     return true;
+  }
+  setWeapon(mode) {
+    if (!["bullet", "missile"].includes(mode)) return;
+    this.weaponMode = mode;
+  }
+  removeProjectile(projectile) {
+    this.scene.remove(projectile.mesh);
+    const materials = new Set();
+    projectile.mesh.traverse((object) => {
+      if (object.isMesh) materials.add(object.material);
+    });
+    for (const material of materials) material.dispose();
+  }
+  addMissile(position, velocity) {
+    const mesh = new THREE.Group();
+    const casing = new THREE.MeshStandardMaterial({
+      color: 0xb9b39c,
+      metalness: 0.65,
+      roughness: 0.55,
+    });
+    const body = new THREE.Mesh(missileBodyGeo, casing);
+    body.rotation.x = Math.PI / 2;
+    mesh.add(body);
+    const nose = new THREE.Mesh(missileNoseGeo, casing);
+    nose.rotation.x = Math.PI / 2;
+    nose.position.z = 0.925;
+    mesh.add(nose);
+    for (let i = 0; i < 4; i++) {
+      const fin = new THREE.Mesh(boxGeo, casing);
+      fin.position.set(
+        Math.cos((i * Math.PI) / 2) * 0.16,
+        Math.sin((i * Math.PI) / 2) * 0.16,
+        -0.5,
+      );
+      fin.scale.set(0.45, 0.035, 0.38);
+      fin.rotation.z = (i * Math.PI) / 2;
+      mesh.add(fin);
+    }
+    const flame = new THREE.Mesh(
+      sphereGeo,
+      new THREE.MeshBasicMaterial({ color: 0xffbd68 }),
+    );
+    flame.position.z = -0.95;
+    flame.scale.set(0.16, 0.16, 0.5);
+    mesh.add(flame);
+    mesh.position.copy(position);
+    mesh.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 0, 1),
+      velocity.clone().normalize(),
+    );
+    this.scene.add(mesh);
+    this.bullets.push({
+      mesh,
+      velocity,
+      life: 5,
+      hostile: false,
+      missile: true,
+      flame,
+      trailTime: 0,
+      previous: position.clone(),
+    });
+    this.missilesFired++;
+  }
+  smoke(position) {
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 6, 4),
+      new THREE.MeshBasicMaterial({
+        color: 0x9d9a87,
+        transparent: true,
+        opacity: 0.4,
+        depthWrite: false,
+      }),
+    );
+    mesh.position.copy(position);
+    mesh.scale.setScalar(0.17);
+    this.scene.add(mesh);
+    this.effects.push({
+      mesh,
+      life: 0.65,
+      max: 0.65,
+      smoke: true,
+      velocity: new THREE.Vector3(0, 0.5, 0),
+    });
+  }
+  explode(position) {
+    this.explosions++;
+    this.burst(position, 0xffa453, 35, 0.85);
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 16, 10),
+      new THREE.MeshBasicMaterial({
+        color: 0xffca79,
+        transparent: true,
+        opacity: 0.75,
+        depthWrite: false,
+      }),
+    );
+    mesh.position.copy(position);
+    this.scene.add(mesh);
+    this.effects.push({ mesh, life: 0.5, max: 0.5, explosion: true });
+    for (const enemy of this.enemies) {
+      if (!this.enabled || enemy.dead) continue;
+      const distance = enemy.root.position.distanceTo(position);
+      if (distance > 7) continue;
+      const cover = this.collision?.segmentHit(position, enemy.root.position);
+      if (cover && cover.distance < distance - 0.15) continue;
+      this.hit(enemy, distance < 3.5 ? 3 : 2);
+    }
+    this.sound("hit");
+    this.onEvent("explosion");
   }
   addBullet(position, velocity, hostile) {
     const material = new THREE.MeshBasicMaterial({
@@ -332,6 +447,18 @@ export class Combat {
       b.previous.copy(b.mesh.position);
       b.mesh.position.addScaledVector(b.velocity, dt);
       b.life -= dt;
+      if (b.missile) {
+        b.flame.scale.z = 0.45 + Math.sin(time * 65) * 0.15;
+        b.trailTime += dt;
+        if (b.trailTime >= 0.04) {
+          this.smoke(
+            b.mesh.position
+              .clone()
+              .addScaledVector(b.velocity.clone().normalize(), -0.9),
+          );
+          b.trailTime %= 0.04;
+        }
+      }
       const travel = b.mesh.position.clone().sub(b.previous),
         distance = travel.length();
       const ray = new THREE.Ray(b.previous.clone(), travel.normalize());
@@ -373,7 +500,7 @@ export class Combat {
           hitPlayer = true;
       }
       if (hitEnemy) {
-        this.hit(hitEnemy);
+        if (!b.missile) this.hit(hitEnemy);
         b.life = 0;
       } else if (hitPlayer) {
         robot.health = Math.max(0, robot.health - 5);
@@ -393,19 +520,30 @@ export class Combat {
         this.burst(terrainHit.point, 0xccaf83, 4, 0.25);
       }
       if (b.life <= 0 || b.mesh.position.y < 0.05) {
+        if (b.missile) {
+          const impact = Number.isFinite(hitDistance)
+            ? ray.at(Math.max(0, hitDistance - 0.06), new THREE.Vector3())
+            : b.mesh.position.clone();
+          this.explode(impact);
+        }
         if (b.mesh.position.y < 0.05)
           this.burst(b.mesh.position, 0xccaf83, 3, 0.2);
-        this.scene.remove(b.mesh);
-        b.mesh.material.dispose();
+        this.removeProjectile(b);
         this.bullets.splice(i, 1);
       }
     }
     for (let i = this.effects.length - 1; i >= 0; i--) {
       const e = this.effects[i];
       e.life -= dt;
-      e.mesh.material.opacity = Math.max(0, e.life / e.max);
+      e.mesh.material.opacity =
+        Math.max(0, e.life / e.max) * (e.smoke ? 0.4 : e.explosion ? 0.75 : 1);
       if (e.pulse) e.mesh.scale.setScalar(1 + (1 - e.life / e.max) * 22);
-      else {
+      else if (e.explosion)
+        e.mesh.scale.setScalar(0.2 + (1 - e.life / e.max) * 5.5);
+      else if (e.smoke) {
+        e.mesh.scale.setScalar(0.17 + (1 - e.life / e.max) * 0.7);
+        e.mesh.position.addScaledVector(e.velocity, dt);
+      } else {
         e.velocity.y -= dt * 9;
         e.mesh.position.addScaledVector(e.velocity, dt);
       }

@@ -158,7 +158,7 @@ function cable(parent, a, b, sag) {
     new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x373e32 })),
   );
 }
-function ruins(parent) {
+function ruins(parent, collision) {
   for (let i = 0; i < 42; i++) {
     const angle = rand() * Math.PI * 2;
     const radius = 72 + rand() * 85;
@@ -207,12 +207,42 @@ function ruins(parent) {
       );
       chunk.rotation.z = rand() * 0.5;
     }
+    g.updateWorldMatrix(true, true);
+    const bounds = new THREE.Box3().setFromObject(g).expandByScalar(1.5);
+    bounds.min.y = -5;
+    bounds.max.y = 80;
+    collision.addBarrier(bounds, `background-${i}`);
+    g.traverse((object) => {
+      object.userData.background = true;
+    });
   }
 }
 
 export function createWorld(scene) {
   const terrain = new THREE.Group();
   const collision = new CollisionWorld();
+  for (const [min, max] of [
+    [
+      [-150, -5, -150],
+      [-62, 80, 150],
+    ],
+    [
+      [62, -5, -150],
+      [150, 80, 150],
+    ],
+    [
+      [-62, -5, -150],
+      [62, 80, -60],
+    ],
+    [
+      [-62, -5, 60],
+      [62, 80, 150],
+    ],
+  ])
+    collision.addBarrier(
+      new THREE.Box3(new THREE.Vector3(...min), new THREE.Vector3(...max)),
+      "district-edge",
+    );
   scene.add(terrain);
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(900, 900),
@@ -255,7 +285,17 @@ export function createWorld(scene) {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     terrain.add(mesh);
-    const { x, z, axis, width, length, bottom, top, direction } = options;
+    const {
+      x,
+      z,
+      axis,
+      width,
+      length,
+      bottom,
+      top,
+      direction,
+      collapsed = false,
+    } = options;
     const start = new THREE.Vector3(x, bottom, z),
       end = new THREE.Vector3(x, top, z);
     start[axis] -= (direction * length) / 2;
@@ -267,7 +307,22 @@ export function createWorld(scene) {
       b[axis === "x" ? "z" : "x"] += side * (width / 2 - 0.2);
       a.y += 0.025;
       b.y += 0.025;
-      beam(terrain, a, b, 0.1, yellow);
+      if (!collapsed) beam(terrain, a, b, 0.1, yellow);
+    }
+    if (collapsed) {
+      for (const t of [0.23, 0.48, 0.71]) {
+        const p = start.clone().lerp(end, t);
+        const a = p.clone(),
+          b = p.clone();
+        const across = axis === "x" ? "z" : "x";
+        a[across] -= width * 0.45;
+        b[across] += width * 0.38;
+        a[axis] -= 0.4;
+        b[axis] += 0.5;
+        a.y = collision.topAt(shape, a.x, a.z) + 0.02;
+        b.y = collision.topAt(shape, b.x, b.z) + 0.02;
+        beam(terrain, a, b, 0.05, darkConcrete);
+      }
     }
     return shape;
   }
@@ -322,42 +377,57 @@ export function createWorld(scene) {
         metal,
       );
   }
-  // A navigable industrial ruin: street, first floor, upper deck, and a bridge.
+  // The factory has lost its front wall. A fallen side slab gives access to
+  // the surviving floor; the central courtyard remains a street, not a ramp.
   box(terrain, concrete, 2, 6.65, -33, 30, 0.7, 14);
-  box(terrain, concrete, -9, 13.65, -33, 8, 0.7, 14);
+  box(terrain, concrete, -5, 10.15, -36.5, 8, 0.7, 7);
+  box(terrain, concrete, -19, 6.65, -34.5, 9, 0.7, 3);
+  box(terrain, concrete, -11.75, 6.65, -31.5, 5.5, 0.7, 9);
   ramp({
-    x: 0,
-    z: -17,
-    width: 10,
-    length: 18,
+    x: -19,
+    z: -22,
+    width: 8.5,
+    length: 22,
     axis: "z",
     direction: -1,
     bottom: 0,
     top: 7,
     id: "factory-access",
+    collapsed: true,
   });
   ramp({
-    x: 4,
-    z: -33,
+    x: 5,
+    z: -36,
     width: 7,
-    length: 18,
+    length: 12,
     axis: "x",
     direction: -1,
     bottom: 7,
-    top: 14,
+    top: 10.5,
     id: "upper-access",
+    collapsed: true,
   });
-  for (const x of [-12, 16])
-    for (const z of [-28, -38])
+  // Exposed reinforcing bars and a broken edge explain the tilted floor slab.
+  for (const side of [-1, 1]) {
+    beam(
+      terrain,
+      new THREE.Vector3(-19 + side * 3.3, 0.3, -11),
+      new THREE.Vector3(-19 + side * 3.3, 6.8, -32),
+      0.18,
+      rust,
+    );
+    box(terrain, darkConcrete, -25, 1.15, -28 + side * 3, 2, 2.3, 4);
+  }
+  for (const x of [-10, 16])
+    for (const z of [-26.4, -38])
       box(terrain, concrete, x, 3.2, z, 0.9, 6.4, 0.9);
-  for (const x of [-12, -6])
-    for (const z of [-28, -38])
-      box(terrain, concrete, x, 10.3, z, 0.8, 6.6, 0.8);
+  for (const x of [-8, -2])
+    for (const z of [-33.4, -39.5])
+      box(terrain, concrete, x, 8.55, z, 0.8, 3.1, 0.8);
   ruinedFacade(2, -40.2, 32, 19);
-  ruinedFacade(-15, -32, 1.2, 15);
+  ruinedFacade(-24.5, -37, 1.2, 15);
   // The broken side wall has large gaps through which the walker can pass.
-  for (const z of [-28, -38])
-    box(terrain, darkConcrete, -14, 4.2, z, 1.2, 8.4, 3.2);
+  box(terrain, darkConcrete, -14, 4.2, -38, 1.2, 8.4, 3.2);
   box(terrain, darkConcrete, 18, 4.5, -28, 1.1, 9, 2.5);
   box(terrain, metal, 21.5, 6.83, -36, 17, 0.34, 8);
   for (const z of [-39.9, -32.1]) {
@@ -368,7 +438,10 @@ export function createWorld(scene) {
       0.2,
       rust,
     );
-    for (const x of [15, 21, 27]) box(terrain, rust, x, 7.6, z, 0.1, 1.2, 0.1);
+    for (const x of [15, 21, 27]) {
+      const post = box(terrain, rust, x, 7.6, z, 0.1, 1.2, 0.1);
+      post.userData.walkable = false;
+    }
     beam(
       terrain,
       new THREE.Vector3(13, 8.2, z),
@@ -386,7 +459,7 @@ export function createWorld(scene) {
   const fallen = box(terrain, concrete, 39, 14.2, -29, 7, 0.6, 4);
   fallen.rotation.z = 0.3;
   fallen.rotation.x = -0.2;
-  // A lower warehouse provides a gentler route and a broad landing area.
+  // The warehouse keeps its original loading dock and a collapsed roof bay.
   box(terrain, concrete, 32, 3.65, 0, 18, 0.7, 14);
   ramp({
     x: 32,
@@ -403,6 +476,71 @@ export function createWorld(scene) {
     for (const z of [-6, 6]) box(terrain, concrete, x, 1.8, z, 0.85, 3.6, 0.85);
   ruinedFacade(32, -7.5, 19, 11);
   box(terrain, darkConcrete, 41.4, 3.8, 0, 0.65, 7.6, 13);
+  box(terrain, concrete, 25.5, 9.4, -3, 4, 0.55, 8);
+  for (const z of [-5, 5])
+    beam(
+      terrain,
+      new THREE.Vector3(24, 9, z),
+      new THREE.Vector3(38, 7.2, z),
+      0.22,
+      rust,
+    );
+  // A gutted office block: one wing survives; the missing corner has collapsed
+  // into its courtyard. The intact column grid gives the ruin a readable plan.
+  box(terrain, concrete, -40, 3.9, 13, 14, 0.6, 16);
+  box(terrain, concrete, -35.5, 3.9, 19, 5, 0.6, 4);
+  box(terrain, concrete, -43, 7.9, 10, 8, 0.6, 10);
+  ruinedFacade(-40, 4.6, 16, 13);
+  box(terrain, darkConcrete, -47.5, 5.5, 13, 0.65, 11, 17);
+  for (const x of [-46, -40, -34])
+    for (const z of [6, 18]) {
+      box(terrain, concrete, x, 1.9, z, 0.65, 3.8, 0.65);
+      if (x < -36) box(terrain, concrete, x, 5.95, z, 0.6, 3.5, 0.6);
+    }
+  ramp({
+    x: -35.5,
+    z: 28,
+    width: 6,
+    length: 14,
+    axis: "z",
+    direction: -1,
+    bottom: 0,
+    top: 4.2,
+    id: "office-collapse",
+    collapsed: true,
+  });
+  const officeSlab = box(terrain, concrete, -29, 0.55, 13, 5, 0.65, 7, 0.25);
+  officeSlab.rotation.z = -0.18;
+  for (let i = 0; i < 7; i++) {
+    box(
+      terrain,
+      darkConcrete,
+      -27 - rand() * 4,
+      0.3 + rand() * 0.5,
+      6 + rand() * 11,
+      1 + rand() * 2,
+      0.55 + rand(),
+      1 + rand(),
+      rand(),
+    );
+    beam(
+      terrain,
+      new THREE.Vector3(-33, 4.2, 12 + i * 0.6),
+      new THREE.Vector3(-31.5, 3.6, 12 + i * 0.6),
+      0.04,
+      metal,
+    );
+  }
+  // Bombed service building south of the arena: doorway, window bays, partial
+  // roof and fallen lintels, leaving a clear passage through the middle.
+  for (const x of [2, 20]) box(terrain, darkConcrete, x, 3, 43, 0.6, 6, 14);
+  for (const x of [5, 17]) box(terrain, concrete, x, 2.5, 36, 5, 5, 0.6);
+  box(terrain, concrete, 7, 5.8, 45, 9, 0.5, 8);
+  box(terrain, concrete, 11, 5.5, 50, 19, 0.7, 0.8);
+  for (const x of [2, 11, 20])
+    box(terrain, concrete, x, 2.7, 50, 0.6, 5.4, 0.6);
+  const lintel = box(terrain, concrete, 17, 0.6, 40, 5, 0.7, 1, 0.4);
+  lintel.rotation.z = 0.2;
   for (let i = 0; i < 8; i++) {
     const rubble = box(
       terrain,
@@ -429,22 +567,19 @@ export function createWorld(scene) {
     );
     broken.rotation.z = 0.15;
   }
-  sign("07 / ACCESO", -8, 1.8, -7, 6);
-  sign("NIVEL 02", -8, 15.4, -40, 5);
+  sign("ACCESO OESTE", -25, 1.8, -10, 7);
+  sign("NIVEL 02", -8, 12, -40, 5);
   sign("ALMACÉN", 32, 6, -7.15, 6);
   pointsOfInterest.push(
-    { name: "Fábrica / rampa", x: 0, z: -8, height: 0 },
+    { name: "Fábrica / losa derrumbada", x: -19, z: -11, height: 0 },
     { name: "Terraza / nivel 01", x: 0, z: -28, height: 7 },
-    { name: "Mirador / nivel 02", x: -8, z: -33, height: 14 },
+    { name: "Mirador / nivel 02", x: -8, z: -36, height: 10.5 },
     { name: "Almacén", x: 32, z: 0, height: 4 },
+    { name: "Oficinas / ala derrumbada", x: -35.5, z: 14, height: 4.2 },
   );
   // Street markings direct the player toward the approach rather than a menu.
-  for (let z = -3; z > -8; z -= 1.4) {
-    const arrow = box(terrain, yellow, 0, 0.025, z, 1.5, 0.015, 0.15);
-    arrow.rotation.y = 0.3;
-    box(terrain, yellow, -0.58, 0.025, z + 0.2, 0.13, 0.015, 0.7, -0.7);
-    box(terrain, yellow, 0.58, 0.025, z + 0.2, 0.13, 0.015, 0.7, 0.7);
-  }
+  for (let x = -3; x > -17; x -= 2)
+    box(terrain, yellow, x, 0.025, -5, 0.65, 0.015, 0.17);
   // Slab seams, service rails, bollards, and wreckage in the foreground.
   for (let i = 0; i < 14; i++) {
     const x = -23 + rand() * 46,
@@ -465,6 +600,7 @@ export function createWorld(scene) {
   }
   for (const side of [-1, 1])
     for (let i = 0; i < 5; i++) {
+      if (side === -1 && i === 0) continue;
       const x = side * 18,
         z = -10 + i * 6;
       box(terrain, darkConcrete, x, 0.45, z, 1.3, 0.9, 2.8);
@@ -513,15 +649,17 @@ export function createWorld(scene) {
   pylon(terrain, -40, -33, 1.15);
   pylon(terrain, -40, -77, 1.1);
   pylon(terrain, 49, -70, 0.95);
-  ruins(terrain);
+  ruins(terrain, collision);
   for (let i = 0; i < 100; i++) {
     const angle = rand() * Math.PI * 2,
       r = 24 + rand() * 70;
     const px = Math.sin(angle) * r,
       pz = Math.cos(angle) * r;
     if (
-      (Math.abs(px) < 17 && pz < -5 && pz > -45) ||
-      (px > 20 && px < 44 && pz > -8 && pz < 25)
+      (px > -28 && px < 20 && pz < -5 && pz > -45) ||
+      (px > 20 && px < 44 && pz > -8 && pz < 25) ||
+      (px > -51 && px < -24 && pz > 2 && pz < 36) ||
+      (px > -2 && px < 24 && pz > 32 && pz < 53)
     )
       continue;
     const object = box(
@@ -574,7 +712,12 @@ export function createWorld(scene) {
         bounds.max.y > 0.18 &&
         bounds.max.y - bounds.min.y > 0.17
       )
-        collision.addBox(bounds);
+        collision.addBox(
+          bounds,
+          object.userData.background ? "background-masonry" : "structure",
+          !object.userData.background && object.userData.walkable !== false,
+          object.userData.background ? { movement: false, limbs: false } : {},
+        );
       const key = object.material.uuid;
       if (!batches.has(key))
         batches.set(key, { material: object.material, geometries: [] });

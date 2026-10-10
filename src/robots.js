@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { solveLeg, swingFoot, smooth } from "./kinematics.js";
+import { swingFoot, smooth } from "./kinematics.js";
+import { resolveLegPose } from "./leg-collision.js";
 
 export const ROBOTS = {
   strider: {
@@ -9,6 +10,8 @@ export const ROBOTS = {
     label: "CUADRÚPEDO",
     legs: 4,
     height: 3.25,
+    hullTop: 1.65,
+    hullRadius: 2.05,
     upper: 2.4,
     lower: 2.6,
     speed: 4.8,
@@ -23,6 +26,8 @@ export const ROBOTS = {
     label: "HEXÁPODO",
     legs: 6,
     height: 2.15,
+    hullTop: 1.45,
+    hullRadius: 1.75,
     upper: 1.9,
     lower: 2.1,
     speed: 6.3,
@@ -166,12 +171,14 @@ export class Robot {
     type = "strider",
     position = new THREE.Vector3(),
     surface = () => 0,
+    collision = null,
   ) {
     this.scene = scene;
     this.type = type;
     this.config = ROBOTS[type];
     this.position = position.clone();
     this.surface = surface;
+    this.collision = collision;
     this.grounded = true;
     this.verticalVelocity = 0;
     this.yaw = 0;
@@ -289,7 +296,14 @@ export class Robot {
         [0.035, 1.3, 0.035],
       );
       antenna.rotation.z = -0.1;
-      sphere(body, materials.orange, [0.97, 2.27, 0.8], [0.07, 0.07, 0.07]);
+      antenna.userData.noCollision = true;
+      const antennaTip = sphere(
+        body,
+        materials.orange,
+        [0.97, 2.27, 0.8],
+        [0.07, 0.07, 0.07],
+      );
+      antennaTip.userData.noCollision = true;
     }
     // Independently rotating sensor turret and a twin-barrel emitter.
     this.turret = new THREE.Group();
@@ -504,6 +518,48 @@ export class Robot {
     this.debugAxes.visible = enabled;
     for (const object of this.debugObjects) object.visible = enabled;
   }
+  captureMotion() {
+    return {
+      position: this.position.clone(),
+      yaw: this.yaw,
+      grounded: this.grounded,
+      verticalVelocity: this.verticalVelocity,
+      time: this.time,
+      phase: this.phase,
+      lastGroup: this.lastGroup,
+      steps: this.steps,
+      bodyRotation: this.body.rotation.clone(),
+      legs: this.legs.map((leg) => ({
+        foot: leg.foot.clone(),
+        start: leg.start.clone(),
+        target: leg.target.clone(),
+        swing: leg.swing,
+        progress: leg.progress,
+      })),
+    };
+  }
+  restoreMotion(snapshot, params) {
+    this.position.copy(snapshot.position);
+    this.yaw = snapshot.yaw;
+    for (const key of [
+      "grounded",
+      "verticalVelocity",
+      "time",
+      "phase",
+      "lastGroup",
+      "steps",
+    ])
+      this[key] = snapshot[key];
+    this.body.rotation.copy(snapshot.bodyRotation);
+    this.legs.forEach((leg, i) => {
+      for (const key of ["foot", "start", "target"])
+        leg[key].copy(snapshot.legs[i][key]);
+      leg.swing = snapshot.legs[i].swing;
+      leg.progress = snapshot.legs[i].progress;
+    });
+    this.velocity.set(0, 0, 0);
+    this.update(0, params);
+  }
   update(dt, params) {
     this.time += dt;
     this.speed = Math.hypot(this.velocity.x, this.velocity.z);
@@ -605,13 +661,34 @@ export class Robot {
         0.25,
         leg.rest.z * 0.16,
       ).applyAxisAngle(up, this.yaw);
-      const result = solveLeg(
+      const result = resolveLegPose(
+        this.collision,
         hip,
         leg.foot,
         this.config.upper,
         this.config.lower,
         bend,
+        this.position,
+        this.grounded,
+        leg.swing,
       );
+      leg.pose = {
+        hip: hip.clone(),
+        knee: result.knee.clone(),
+        foot: result.foot.clone(),
+      };
+      leg.adjusted = result.adjusted;
+      leg.obstructed = result.obstructed;
+      if (result.adjusted && !result.obstructed) {
+        leg.foot.copy(result.foot);
+        if (leg.swing) {
+          leg.target.copy(result.foot);
+          if (this.grounded)
+            leg.target.y =
+              this.surface(result.foot.x, result.foot.z, this.position.y + 2) +
+              0.14;
+        }
+      }
       connect(leg.upper, hip, result.knee, 0.24);
       connect(
         leg.plate,
@@ -637,7 +714,26 @@ export class Robot {
       leg.kneeJoint.position.copy(result.knee);
       leg.footGroup.position.copy(result.foot);
       leg.footGroup.position.y -= 0.14;
-      leg.footGroup.rotation.y = this.yaw;
+      const floorCeiling = Math.min(result.foot.y - 0.05, this.position.y + 2);
+      const groundAt = (x, z) => this.surface(x, z, floorCeiling);
+      const fx = result.foot.x,
+        fz = result.foot.z;
+      const slopeX = THREE.MathUtils.clamp(
+        (groundAt(fx + 0.25, fz) - groundAt(fx - 0.25, fz)) / 0.5,
+        -0.65,
+        0.65,
+      );
+      const slopeZ = THREE.MathUtils.clamp(
+        (groundAt(fx, fz + 0.25) - groundAt(fx, fz - 0.25)) / 0.5,
+        -0.65,
+        0.65,
+      );
+      leg.footGroup.quaternion
+        .setFromUnitVectors(
+          up,
+          new THREE.Vector3(-slopeX, 1, -slopeZ).normalize(),
+        )
+        .multiply(new THREE.Quaternion().setFromAxisAngle(up, this.yaw));
       leg.debugHip.position.copy(hip);
       leg.debugKnee.position.copy(result.knee);
       leg.debugFoot.position.copy(leg.foot);

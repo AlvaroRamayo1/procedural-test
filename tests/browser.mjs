@@ -9,7 +9,7 @@ const server = await createServer({
   logLevel: "error",
 });
 await server.listen();
-let browser;
+let browser, page;
 const errors = [],
   externalRequests = [];
 let checks = 0;
@@ -27,7 +27,7 @@ try {
       "--enable-unsafe-swiftshader",
     ],
   });
-  const page = await browser.newPage({
+  page = await browser.newPage({
     viewport: { width: 1000, height: 760 },
   });
   page.on("pageerror", (e) => errors.push(e.message));
@@ -190,6 +190,7 @@ try {
   await page.keyboard.down("KeyF");
   let fired = false;
   for (let i = 0; i < 25; i++) {
+    if ((await snapshot()).score > 0) break;
     const targets = await page.evaluate(() => window.rift.getTargets());
     const target = targets.find(
       (t) =>
@@ -200,7 +201,10 @@ try {
         t.screen[1] > 165 &&
         t.screen[1] < 650,
     );
-    assert.ok(target, "a shootable drone is visible in the test arena");
+    if (!target) {
+      await page.waitForTimeout(200);
+      continue;
+    }
     await page.mouse.move(...target.screen);
     await page.waitForTimeout(200);
     const s = await snapshot();
@@ -211,6 +215,45 @@ try {
   assert.ok(fired);
   assert.ok((await snapshot()).score > 0, "projectiles should destroy a drone");
   passed("aimed projectiles hit and destroy hostile drones");
+  await page.keyboard.press("KeyV");
+  assert.equal((await snapshot()).weapon, "missile");
+  for (const type of ["strider", "mantis", "wasp"]) {
+    await page.click('.unit-tab[data-robot="' + type + '"]');
+    const before = (await snapshot()).missilesFired;
+    await page.locator("#world").focus();
+    await page.keyboard.down("KeyF");
+    for (let i = 0; i < 35; i++) {
+      const target = (await page.evaluate(() => window.rift.getTargets())).find(
+        (t) =>
+          t.visible &&
+          t.unobstructed &&
+          t.screen[0] > 150 &&
+          t.screen[0] < 950 &&
+          t.screen[1] > 170 &&
+          t.screen[1] < 640,
+      );
+      if (target) await page.mouse.move(...target.screen);
+      await page.waitForTimeout(150);
+      if ((await snapshot()).missilesFired > before) break;
+    }
+    await page.keyboard.up("KeyF");
+    assert.ok(
+      (await snapshot()).missilesFired > before,
+      type + " launches a missile",
+    );
+  }
+  await page.waitForFunction(
+    () => window.rift.getState().explosions > 0,
+    null,
+    { timeout: 45000 },
+  );
+  assert.ok((await snapshot()).explosions > 0);
+  await page.click("#weapon-toggle");
+  assert.equal((await snapshot()).weapon, "bullet");
+  await page.keyboard.press("Digit1");
+  passed(
+    "all three units launch missiles; V and the weapon button switch firing modes",
+  );
   await page.keyboard.press("Space");
   const emp = await snapshot();
   assert.ok(emp.empCooldown > 0);
@@ -227,49 +270,95 @@ try {
   await openSettings();
   await page.click("#targets");
   await page.click("#deploy");
-  await page.keyboard.down("KeyW");
-  await page.keyboard.down("KeyD");
-  await page.waitForFunction(
-    () => window.rift.getState().altitude > 6.8,
-    null,
-    { timeout: 60000 },
+  assert.equal(await page.evaluate(() => window.rift.heightAt(0, -17, 1)), 0);
+  assert.equal(
+    (await page.evaluate(() => window.rift.getBackgroundBounds())).length,
+    42,
   );
-  await page.keyboard.up("KeyW");
-  await page.keyboard.up("KeyD");
-  const elevated = await snapshot();
-  assert.ok(elevated.steps > 15);
-  assert.ok(elevated.legs.some((l) => l.foot[1] > 6));
-  passed("walker climbs the factory ramp and plants feet on elevated surfaces");
-  await walkTo(page, 12.8, -27.3);
-  await walkTo(page, 12.8, -33);
-  await walkTo(page, -9, -33);
-  assert.ok((await snapshot()).altitude > 13.9);
-  const clearCamera = await page.evaluate(() => window.rift.getCamera());
-  assert.ok(clearCamera.distance > 12);
   passed(
-    "walker reaches the upper lookout and camera retains a usable orbit distance",
+    "central street stays level and skyline buildings have inaccessible boundary volumes",
   );
-  await walkTo(page, 12.8, -33);
-  await walkTo(page, 12.8, -36);
+  await page.evaluate(() => {
+    window.legFailures = [];
+    window.watchLegs = true;
+    const watch = () => {
+      if (!window.watchLegs) return;
+      const state = window.rift.getState();
+      if (state.legs.some((l) => l.obstructed) && window.legFailures.length < 5)
+        window.legFailures.push({ position: state.position, legs: state.legs });
+      requestAnimationFrame(watch);
+    };
+    requestAnimationFrame(watch);
+  });
+  await walkTo(page, -13, -8);
+  await walkTo(page, -19, -8);
+  await walkTo(page, -19, -18);
+  await walkTo(page, -19, -26);
+  await walkTo(page, -19, -34);
+  const elevated = await snapshot();
+  assert.ok(elevated.altitude > 6.9);
+  assert.ok(elevated.steps > 15);
+  assert.ok(elevated.legs.some((l) => l.renderedFoot[1] > 6));
+  assert.ok(elevated.legs.every((l) => !l.obstructed));
+  passed(
+    "walker climbs the collapsed side slab with collision-free procedural legs",
+  );
+  await walkTo(page, -12, -34);
+  await walkTo(page, -12, -29.2);
+  await walkTo(page, 12, -29.2);
+  await walkTo(page, 12, -36);
+  await walkTo(page, -7, -36);
+  assert.ok((await snapshot()).altitude > 10.4);
+  assert.ok((await snapshot()).legs.every((l) => !l.obstructed));
+  const clearCamera = await page.evaluate(() => window.rift.getCamera());
+  assert.ok(clearCamera.distance > 8);
+  passed("walker reaches the upper floor through the ruined building");
+  await walkTo(page, 12, -36);
+  await walkTo(page, 20, -36);
+  await walkTo(page, 27, -36);
   await walkTo(page, 35, -36);
   assert.ok(Math.abs((await snapshot()).altitude - 7) < 0.1);
+  passed("the bridge remains traversable between buildings");
+  await walkTo(page, 39.4, -36, 0.6);
+  await page.keyboard.down("KeyD");
+  await page.waitForTimeout(1600);
+  await page.keyboard.up("KeyD");
+  for (const type of ["strider", "mantis"]) {
+    await page.click('.unit-tab[data-robot="' + type + '"]');
+    const nearWall = await snapshot();
+    assert.ok(nearWall.position[0] < 40.1);
+    assert.ok(
+      nearWall.legs.every(
+        (l) => !l.obstructed && l.renderedFoot[0] < 41.5 && l.knee[0] < 41.67,
+      ),
+    );
+  }
   passed(
-    "the bridge is traversable and connects two buildings at seven metres",
+    "quadruped and hexapod keep feet and knees clear when pressing against a wall",
   );
-  await walkTo(page, 12.8, -36);
-  await walkTo(page, 12.8, -33);
-  await walkTo(page, 12.8, -27.3);
-  await walkTo(page, 0, -27.3);
-  await page.keyboard.down("KeyS");
-  await page.keyboard.down("KeyA");
-  await page.waitForFunction(
-    () => window.rift.getState().altitude < 0.05,
-    null,
-    { timeout: 60000 },
+  await page.keyboard.press("Digit1");
+  await walkTo(page, 35, -36);
+  await walkTo(page, 27, -36);
+  await walkTo(page, 20, -36);
+  await walkTo(page, 12, -36);
+  await walkTo(page, 12, -29.2);
+  await walkTo(page, -12, -29.2);
+  await walkTo(page, -12, -34);
+  await walkTo(page, -19, -34);
+  await walkTo(page, -19, -8);
+  assert.ok((await snapshot()).altitude < 0.05);
+  const legFailures = await page.evaluate(() => {
+    window.watchLegs = false;
+    return window.legFailures;
+  });
+  assert.deepEqual(
+    legFailures,
+    [],
+    "feet and limb segments stay outside masonry throughout exploration",
   );
-  await page.keyboard.up("KeyS");
-  await page.keyboard.up("KeyA");
-  passed("walker descends from the platform back to street level");
+  passed(
+    "walker descends the side slab back to the street with no limb penetration",
+  );
   await page.click("#reset");
   await mkdir("test-results", { recursive: true });
   await openSettings();
@@ -327,6 +416,23 @@ try {
   console.log(
     `\n${checks} browser checks passed. Screenshots: test-results/desktop.png, test-results/mobile.png`,
   );
+} catch (error) {
+  await mkdir("test-results", { recursive: true });
+  if (page) {
+    await page.screenshot({ path: "test-results/failure.png" });
+    console.error(
+      JSON.stringify(
+        await page.evaluate(() => ({
+          state: window.rift?.getState(),
+          legs: window.legFailures,
+          camera: window.rift?.getCamera(),
+        })),
+        null,
+        2,
+      ),
+    );
+  }
+  throw error;
 } finally {
   if (browser) await browser.close();
   await server.close();

@@ -12,8 +12,18 @@ export class CollisionWorld {
     this.cells = new Map();
     this.solids = [];
   }
-  addBox(bounds, id = "structure", walkable = true) {
-    return this.register({ bounds: bounds.clone(), id, walkable, type: "box" });
+  addBox(bounds, id = "structure", walkable = true, options = {}) {
+    return this.register({
+      bounds: bounds.clone(),
+      id,
+      walkable,
+      type: "box",
+      ...options,
+    });
+  }
+  addBarrier(bounds, id = "background-boundary") {
+    // A movement-only volume: shots and the camera still meet visible masonry.
+    return this.addBox(bounds, id, false, { raycast: false });
   }
   addRamp({
     x,
@@ -138,6 +148,7 @@ export class CollisionWorld {
     return height;
   }
   overlaps(solid, position, radius, bottom, top, stepHeight = 0) {
+    if (solid.movement === false) return false;
     const { min, max } = solid.bounds;
     const nearX = clamp(position.x, min.x, max.x),
       nearZ = clamp(position.z, min.z, max.z);
@@ -146,6 +157,58 @@ export class CollisionWorld {
     const surface = this.topAt(solid, nearX, nearZ);
     if (surface <= bottom + stepHeight + EPS || min.y >= top - EPS)
       return false;
+    return true;
+  }
+  footClear(foot, radius = 0.57) {
+    for (const solid of this.query(foot.x, foot.z, radius)) {
+      if (solid.limbs === false) continue;
+      const { min, max } = solid.bounds;
+      const x = clamp(foot.x, min.x, max.x),
+        z = clamp(foot.z, min.z, max.z);
+      if ((x - foot.x) ** 2 + (z - foot.z) ** 2 >= radius ** 2) continue;
+      const top = this.topAt(solid, x, z);
+      // Contact with the supporting floor is allowed; tall walls are not.
+      if (solid.walkable && top <= foot.y - 0.1 + EPS) continue;
+      if (top > foot.y - 0.14 + EPS && min.y < foot.y + 0.12 - EPS)
+        return false;
+    }
+    return true;
+  }
+  limbClear(start, end, radius = 0.3) {
+    const length = start.distanceTo(end);
+    const center = start.clone().add(end).multiplyScalar(0.5);
+    const direction = end.clone().sub(start).normalize();
+    const ray = new THREE.Ray(start, direction);
+    for (const solid of this.query(center.x, center.z, length / 2 + radius)) {
+      if (solid.limbs === false) continue;
+      if (solid.type === "box") {
+        const expanded = solid.bounds.clone().expandByScalar(radius - EPS);
+        if (expanded.containsPoint(start) || expanded.containsPoint(end))
+          return false;
+        const hit = ray.intersectBox(expanded, new THREE.Vector3());
+        if (hit && hit.distanceTo(start) < length - EPS) return false;
+      } else {
+        // Check the actual slope, including the thickness of the limb. Sampling
+        // is only needed for the few ramps; wall sweeps above are continuous.
+        const slope =
+          (solid.top - solid.bottom) /
+          (solid.bounds.max[solid.axis] - solid.bounds.min[solid.axis]);
+        const verticalRadius = radius * Math.sqrt(1 + slope * slope);
+        const count = Math.max(1, Math.ceil(length / 0.12));
+        for (let i = 0; i <= count; i++) {
+          const p = start.clone().lerp(end, i / count);
+          const { min, max } = solid.bounds;
+          const x = clamp(p.x, min.x, max.x),
+            z = clamp(p.z, min.z, max.z);
+          if ((p.x - x) ** 2 + (p.z - z) ** 2 >= radius ** 2) continue;
+          if (
+            p.y + radius > min.y + EPS &&
+            p.y - verticalRadius < this.topAt(solid, x, z) - EPS
+          )
+            return false;
+        }
+      }
+    }
     return true;
   }
   moveWalker(position, velocity, dt, options = {}) {
@@ -253,6 +316,7 @@ export class CollisionWorld {
         closest = { point: point.clone(), distance, solid };
     };
     for (const solid of candidates) {
+      if (solid.raycast === false) continue;
       if (!ray.intersectsBox(solid.bounds)) continue;
       if (solid.type === "ramp")
         for (const [a, b, c] of solid.faces)

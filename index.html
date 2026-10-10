@@ -204,7 +204,7 @@
           <span>CAMPO DE PRUEBAS</span
           ><strong id="coordinates">X +00.0 / Z +00.0</strong
           ><span
-            ><i class="status-dot"></i> RUINAS EXPLORABLES · 240 × 240 M</span
+            ><i class="status-dot"></i> RUINAS EXPLORABLES · 124 × 120 M</span
           >
         </div>
         <div class="altitude-hud">
@@ -295,6 +295,7 @@
           <div><kbd>W A S D</kbd><span>Mover</span></div>
           <div><kbd>SHIFT</kbd><span>Correr</span></div>
           <div><kbd>CLIC</kbd><span>Disparar</span></div>
+          <div><kbd>V</kbd><span>Balas / misil</span></div>
           <div><kbd>ESPACIO</kbd><span>Pulso EMP</span></div>
           <div class="flight-hint">
             <kbd>Q / E</kbd><span>Subir / bajar</span>
@@ -324,6 +325,15 @@
         <button id="deploy" class="primary-button">
           <svg viewBox="0 0 20 20"><path d="m7 4 9 6-9 6z" /></svg
           ><span>Pilotar unidad</span><kbd>ENTER</kbd>
+        </button>
+        <button
+          id="weapon-toggle"
+          class="dock-tool weapon-tool"
+          aria-label="Cambiar entre balas y misiles"
+          aria-pressed="false"
+          title="Cambiar arma (V)"
+        >
+          <kbd>V</kbd> <span id="weapon-label">BALAS</span>
         </button>
         <button
           id="reset"

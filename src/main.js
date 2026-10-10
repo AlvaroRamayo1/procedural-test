@@ -76,7 +76,13 @@ function setQuality(value) {
 }
 setQuality(quality);
 const surface = (x, z, ceiling) => world.collision.heightAt(x, z, ceiling);
-let robot = new Robot(scene, "strider", new THREE.Vector3(), surface);
+let robot = new Robot(
+  scene,
+  "strider",
+  new THREE.Vector3(),
+  surface,
+  world.collision,
+);
 robot.yaw = 2.7;
 robot.replant();
 const params = { speed: 1, stride: 1.4, lift: 0.8, ik: true };
@@ -162,7 +168,7 @@ function setPlaying(playing) {
     toast(
       robot.type === "wasp"
         ? "WASD · Q SUBIR · E BAJAR · ESC SALIR"
-        : "WASD PARA MOVER · SIGUE LAS RAMPAS AMARILLAS",
+        : "WASD PARA MOVER · V CAMBIA EL ARMA · ACCESO OESTE",
     );
   } else robot.velocity.set(0, 0, 0);
 }
@@ -185,7 +191,7 @@ function selectRobot(type) {
   const pos = robot.position.clone(),
     oldYaw = robot.yaw;
   robot.dispose();
-  robot = new Robot(scene, type, pos, surface);
+  robot = new Robot(scene, type, pos, surface, world.collision);
   robot.yaw = oldYaw;
   robot.replant();
   robot.setDebug($("debug").checked);
@@ -324,6 +330,7 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "KeyP" && !e.repeat) setPaused(!state.paused);
   if (e.code === "KeyI" && !e.repeat) toggleSettings();
   if (e.code === "KeyR" && !e.repeat) $("reset").click();
+  if (e.code === "KeyV" && !e.repeat) $("weapon-toggle").click();
   if (!e.repeat && ["Digit1", "Digit2", "Digit3"].includes(e.code))
     selectRobot(["strider", "mantis", "wasp"][Number(e.code.slice(-1)) - 1]);
   if (e.code === "Space" && state.playing && !state.paused && !e.repeat) {
@@ -333,6 +340,19 @@ window.addEventListener("keydown", (e) => {
   keys.add(e.code);
 });
 window.addEventListener("keyup", (e) => keys.delete(e.code));
+$("weapon-toggle").addEventListener("click", () => {
+  combat.setWeapon(combat.weaponMode === "bullet" ? "missile" : "bullet");
+  $("weapon-toggle").setAttribute(
+    "aria-pressed",
+    String(combat.weaponMode === "missile"),
+  );
+  toast(
+    combat.weaponMode === "missile"
+      ? "MISIL ARMADO · EXPLOSIÓN DE ÁREA · RECARGA 1.1 S"
+      : "BALAS · FUEGO AUTOMÁTICO",
+  );
+  if (state.playing) canvas.focus({ preventScroll: true });
+});
 window.addEventListener("blur", () => {
   keys.clear();
   holdingFire = false;
@@ -401,6 +421,12 @@ function updateTelemetry(dt) {
   $("health-bar").style.width = `${robot.health}%`;
   $("health-bar").style.background = robot.health < 30 ? "#e79a71" : "#abc294";
   $("score").textContent = String(combat.score).padStart(2, "0");
+  $("weapon-label").textContent =
+    combat.weaponMode === "missile"
+      ? combat.shotCooldown > 0.1
+        ? `MISIL ${combat.shotCooldown.toFixed(1)}s`
+        : "MISIL"
+      : "BALAS";
   $("live-speed").textContent = `${robot.speed.toFixed(1)} m/s`;
   $("live-feet").textContent = robot.legs.length
     ? `${robot.legs.filter((l) => !l.swing).length} / ${robot.legs.length}`
@@ -487,8 +513,8 @@ function movement(dt) {
           radius: 2.45,
         })
       : world.collision.moveWalker(robot.position, robot.velocity, dt, {
-          radius: robot.type === "mantis" ? 1.35 : 1.6,
-          height: robot.config.height + 2.35,
+          radius: robot.config.hullRadius,
+          height: robot.config.height + robot.config.hullTop,
           verticalVelocity: robot.verticalVelocity,
         });
   robot.position.copy(result.position);
@@ -537,8 +563,20 @@ function animate(now) {
     const dt = Math.min(remaining, 1 / 60);
     remaining -= dt;
     state.time += dt;
+    const safeMotion = robot.legs.length ? robot.captureMotion() : null;
     movement(dt);
     robot.update(dt, params);
+    if (safeMotion && robot.legs.some((leg) => leg.obstructed)) {
+      // A corner can leave no mechanical pose with sufficient clearance.
+      // Keep the last valid position rather than rendering a limb through it.
+      const correction = safeMotion.position.clone().sub(robot.position);
+      robot.restoreMotion(safeMotion, params);
+      robot.blocked = { ...robot.blocked, legs: true };
+      if (state.playing) {
+        camera.position.add(correction);
+        controls.target.add(correction);
+      }
+    }
     if (state.playing) {
       raycaster.setFromCamera(
         hasPointer ? pointer : new THREE.Vector2(0, 0),
@@ -628,7 +666,15 @@ window.rift = {
     position: robot.position.toArray(),
     velocity: robot.speed,
     steps: robot.steps,
-    legs: robot.legs.map((l) => ({ foot: l.foot.toArray(), swing: l.swing })),
+    legs: robot.legs.map((l) => ({
+      foot: l.foot.toArray(),
+      swing: l.swing,
+      adjusted: l.adjusted,
+      obstructed: l.obstructed,
+      hip: l.pose?.hip.toArray(),
+      knee: l.pose?.knee.toArray(),
+      renderedFoot: l.pose?.foot.toArray(),
+    })),
     health: robot.health,
     score: combat.score,
     playing: state.playing,
@@ -640,6 +686,11 @@ window.rift = {
     grid: world.grid.visible,
     empCooldown: combat.empCooldown,
     bullets: combat.bullets.length,
+    weapon: combat.weaponMode,
+    missiles: combat.bullets.filter((b) => b.missile).length,
+    missilesFired: combat.missilesFired,
+    explosions: combat.explosions,
+    shotCooldown: combat.shotCooldown,
     fps: state.fps,
     grounded: robot.grounded,
     altitude:
@@ -650,6 +701,13 @@ window.rift = {
   }),
   heightAt: (x, z, ceiling) => surface(x, z, ceiling),
   getLandmarks: () => world.pointsOfInterest.map((p) => ({ ...p })),
+  getBackgroundBounds: () =>
+    world.collision.solids
+      .filter((s) => s.id.startsWith("background-") && s.raycast === false)
+      .map((s) => ({
+        min: s.bounds.min.toArray(),
+        max: s.bounds.max.toArray(),
+      })),
   getCamera: () => ({
     position: camera.position.toArray(),
     target: controls.target.toArray(),
