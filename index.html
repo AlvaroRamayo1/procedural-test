@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#151916" />
+    <title>RIFT — Robotics field lab</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="world" aria-label="Campo de pruebas 3D de robots"></canvas>
+      <div class="vignette" aria-hidden="true"></div>
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="RIFT Robotics Lab"
+          ><svg viewBox="0 0 34 34">
+            <path d="M5 5h16l8 8v16H13l-8-8z" />
+            <path d="M12 12h9v9h-9zM21 12l8-7M12 21l-7 8" /></svg
+          ><strong>RIFT<span>LAB</span></strong>
+          <div class="brand-caption">ROBOTICS<br />FIELD RESEARCH</div></a
+        >
+        <nav aria-label="Vistas">
+          <button class="nav-item active" data-view="field">
+            Campo de pruebas</button
+          ><button class="nav-item" data-view="telemetry">
+            Telemetría <span class="tiny-dot"></span>
+          </button>
+        </nav>
+        <div class="header-status">
+          <span class="status-dot"></span><span>SIMULACIÓN EN LÍNEA</span><i></i
+          ><button
+            class="mono"
+            id="fps"
+            title="Cambiar calidad gráfica"
+            aria-label="Cambiar calidad gráfica"
+          >
+            — FPS</button
+          ><button
+            id="fullscreen"
+            class="icon-button"
+            title="Pantalla completa"
+            aria-label="Pantalla completa"
+          >
+            ⛶
+          </button>
+        </div>
+      </header>
+
+      <aside class="lab-panel" id="lab-panel">
+        <div class="panel-heading">
+          <span class="eyebrow">CONFIGURACIÓN DE UNIDAD</span
+          ><span class="mono muted">LAB / 001</span>
+        </div>
+        <div class="unit-title">
+          <div>
+            <span class="unit-index" id="unit-index">01</span>
+            <h1 id="robot-name">STRIDER</h1>
+          </div>
+          <span class="tag" id="robot-class">CUADRÚPEDO</span>
+        </div>
+        <p class="unit-description" id="robot-description">
+          Un explorador pesado. Estable, resistente y preparado para el terreno
+          de nadie.
+        </p>
+        <div class="robot-picker" role="group" aria-label="Seleccionar robot">
+          <button
+            class="robot-card selected"
+            data-robot="strider"
+            aria-pressed="true"
+          >
+            <svg viewBox="0 0 90 62">
+              <path
+                d="M29 22h32l8 10-7 13H28l-7-13zM32 27l26 0M35 32h20M26 32L15 20 8 49M63 32l12-12 8 29M32 40L23 52H13M58 40l9 12h10"
+              />
+              <path class="eye" d="M37 23h16" /></svg
+            ><span>STRIDER</span><small>01</small>
+          </button>
+          <button class="robot-card" data-robot="mantis" aria-pressed="false">
+            <svg viewBox="0 0 90 62">
+              <path
+                d="M33 23h24l9 9-9 10H33l-9-10zM26 26L13 17 5 32M25 32H10L5 45M28 38L17 47l-2 8M64 26l13-9 8 15M65 32h15l5 13M62 38l11 9 2 8"
+              />
+              <path class="eye" d="M39 25h12" /></svg
+            ><span>MANTIS</span><small>02</small>
+          </button>
+          <button class="robot-card" data-robot="wasp" aria-pressed="false">
+            <svg viewBox="0 0 90 62">
+              <path
+                d="M31 26h28l6 10-10 8H35l-10-8zM30 29L19 22M60 29l11-7M30 38l-11 7M60 38l11 7"
+              />
+              <ellipse cx="17" cy="21" rx="12" ry="5" />
+              <ellipse cx="73" cy="21" rx="12" ry="5" />
+              <ellipse cx="17" cy="46" rx="12" ry="5" />
+              <ellipse cx="73" cy="46" rx="12" ry="5" />
+              <path class="eye" d="M38 30h14" /></svg
+            ><span>WASP</span><small>03</small>
+          </button>
+        </div>
+        <div class="section-label">
+          <span>LOCOMOCIÓN PROCEDURAL</span><span class="pill">LIVE</span>
+        </div>
+        <div class="slider-control">
+          <label for="speed"
+            >Velocidad
+            <span><output id="speed-value">1.0</output> ×</span></label
+          ><input
+            id="speed"
+            type="range"
+            min="0.2"
+            max="2"
+            step="0.1"
+            value="1"
+          />
+          <div class="range-caption">
+            <span>PRECISIÓN</span><span>VELOCIDAD</span>
+          </div>
+        </div>
+        <div class="slider-control">
+          <label for="stride"
+            >Longitud de paso
+            <span><output id="stride-value">1.4</output> m</span></label
+          ><input
+            id="stride"
+            type="range"
+            min="0.6"
+            max="2.2"
+            step="0.1"
+            value="1.4"
+          />
+        </div>
+        <div class="slider-control">
+          <label for="lift"
+            >Elevación de patas
+            <span><output id="lift-value">0.8</output> m</span></label
+          ><input
+            id="lift"
+            type="range"
+            min="0.15"
+            max="1.5"
+            step="0.05"
+            value="0.8"
+          />
+        </div>
+        <div class="toggle-row">
+          <label for="ik"
+            >Cinemática inversa
+            <span
+              class="info"
+              title="Calcula las articulaciones para mantener los pies en el suelo."
+              >i</span
+            ></label
+          ><label class="switch"
+            ><input id="ik" type="checkbox" checked /><span></span
+          ></label>
+        </div>
+        <div class="toggle-row">
+          <label for="debug">Mostrar articulaciones</label
+          ><label class="switch"
+            ><input id="debug" type="checkbox" /><span></span
+          ></label>
+        </div>
+        <div class="section-divider"></div>
+        <div class="section-label">
+          <span>CAMPO DE PRUEBAS</span><span class="mono muted">ZONA 07</span>
+        </div>
+        <div class="environment-control">
+          <label for="weather">Atmósfera</label
+          ><select id="weather">
+            <option value="dusk">Polvo al atardecer</option>
+            <option value="storm">Tormenta de cenizas</option>
+            <option value="night">Noche industrial</option>
+          </select>
+        </div>
+        <div class="toggle-row">
+          <label for="targets">Drones hostiles</label
+          ><label class="switch"
+            ><input id="targets" type="checkbox" checked /><span></span
+          ></label>
+        </div>
+        <div class="panel-actions">
+          <button id="deploy" class="primary-button">
+            <svg viewBox="0 0 20 20"><path d="m7 4 9 6-9 6z" /></svg
+            ><span>Pilotar unidad</span><kbd>ENTER</kbd>
+          </button>
+          <div class="secondary-actions">
+            <button id="reset">↺ <span>Reiniciar</span></button
+            ><button id="pause">Ⅱ <span>Pausar</span></button>
+          </div>
+        </div>
+        <div class="panel-foot">
+          <span class="status-dot"></span> MOTOR PROCEDURAL
+          <span class="mono">v0.1</span>
+        </div>
+      </aside>
+
+      <main class="scene-ui" aria-label="Estado de simulación">
+        <div class="scene-heading">
+          <span class="eyebrow"
+            ><span class="amber-dot"></span> SANDBOX ABIERTO</span
+          >
+          <h2>El silencio después<br />de las máquinas.</h2>
+          <p>SECTOR 07 <span>/</span> TIERRAS MUERTAS</p>
+        </div>
+        <div class="scene-coordinates mono">
+          <span>CAMPO DE PRUEBAS</span
+          ><strong id="coordinates">X +00.0 / Z +00.0</strong
+          ><span><i class="status-dot"></i> TERRENO PLANO · 240 × 240 M</span>
+        </div>
+        <div class="unit-marker">
+          <span class="marker-line"></span>
+          <div>
+            <span class="mono" id="scene-unit-id">RFT — S01</span
+            ><strong id="scene-unit-name">STRIDER</strong
+            ><small id="unit-state">PATRULLA AUTÓNOMA</small>
+          </div>
+        </div>
+        <div class="crosshair" id="crosshair"><span></span><i></i></div>
+        <div class="play-hud" id="play-hud">
+          <span>INTEGRIDAD</span>
+          <div class="health-track"><div id="health-bar"></div></div>
+          <strong id="health-text">100%</strong><span class="hud-divider"></span
+          ><span>NEUTRALIZADOS</span><strong id="score">00</strong>
+        </div>
+        <div class="status-toast" id="toast" role="status"></div>
+        <div class="telemetry-panel" id="telemetry-panel" hidden>
+          <div class="section-label">
+            TELEMETRÍA EN TIEMPO REAL <span class="pill">LIVE</span>
+          </div>
+          <h3 id="telemetry-name">STRIDER / S01</h3>
+          <canvas
+            id="telemetry-chart"
+            width="420"
+            height="100"
+            aria-label="Gráfico de velocidad"
+          ></canvas>
+          <div class="telemetry-grid">
+            <div>
+              <small>VELOCIDAD</small><strong id="live-speed">0.0 m/s</strong>
+            </div>
+            <div>
+              <small>APOYOS</small><strong id="live-feet">4 / 4</strong>
+            </div>
+            <div>
+              <small>PASOS TOTALES</small><strong id="live-steps">0</strong>
+            </div>
+            <div>
+              <small>ESTADO IK</small><strong id="live-ik">ACTIVO</strong>
+            </div>
+          </div>
+          <p>
+            Las patas fijan el apoyo en coordenadas del mundo. Cada paso y
+            articulación se resuelve durante la simulación.
+          </p>
+        </div>
+        <div class="scene-toolbar">
+          <button
+            id="camera-reset"
+            title="Restablecer cámara"
+            aria-label="Restablecer cámara"
+          >
+            <svg viewBox="0 0 24 24">
+              <path d="M4 8h4l2-3h5l2 3h3v11H4z" />
+              <circle cx="12" cy="13" r="3" />
+            </svg></button
+          ><button
+            id="grid-toggle"
+            title="Mostrar cuadrícula"
+            aria-label="Mostrar cuadrícula"
+            aria-pressed="false"
+          >
+            <svg viewBox="0 0 24 24">
+              <path d="M4 4h16v16H4zM4 9h16M4 15h16M9 4v16M15 4v16" />
+            </svg></button
+          ><button
+            id="sound-toggle"
+            title="Activar sonido"
+            aria-label="Activar sonido"
+            aria-pressed="false"
+          >
+            <svg viewBox="0 0 24 24">
+              <path d="M4 10h4l5-4v12l-5-4H4zM17 9l4 6M21 9l-4 6" />
+            </svg>
+          </button>
+        </div>
+        <div class="compass">
+          <span>W</span><i></i><span>NW</span><i></i><strong>N</strong><i></i
+          ><span>NE</span><i></i><span>E</span><b>▲</b>
+        </div>
+        <div class="controls-strip">
+          <div><kbd>W A S D</kbd><span>Mover</span></div>
+          <div><kbd>SHIFT</kbd><span>Correr</span></div>
+          <div><kbd>CLIC</kbd><span>Disparar</span></div>
+          <div><kbd>ESPACIO</kbd><span>Pulso EMP</span></div>
+          <i></i>
+          <div>
+            <span class="mouse-icon">↔</span
+            ><span>Arrastrar para orbitar</span>
+          </div>
+          <div><span class="mouse-icon">↕</span><span>Zoom</span></div>
+        </div>
+      </main>
+      <div id="loading">
+        <div class="loading-mark">RIFT<span>LAB</span></div>
+        <div class="loading-track"><span></span></div>
+        <p>INICIALIZANDO CAMPO DE PRUEBAS</p>
+      </div>
+      <div id="fatal" hidden>
+        <h2>El motor 3D no pudo iniciarse</h2>
+        <p>
+          Este prototipo necesita WebGL. Activa la aceleración gráfica del
+          navegador y vuelve a cargar.
+        </p>
+      </div>
+      <button id="mobile-panel-toggle" aria-label="Mostrar configuración">
+        ⚙
+      </button>
+      <div id="touch-controls" aria-label="Controles táctiles">
+        <div class="touch-directions">
+          <button data-key="KeyW" aria-label="Avanzar">↑</button
+          ><button data-key="KeyA" aria-label="Mover a la izquierda">←</button
+          ><button data-key="KeyS" aria-label="Retroceder">↓</button
+          ><button data-key="KeyD" aria-label="Mover a la derecha">→</button>
+        </div>
+        <div class="touch-actions">
+          <button data-action="fire">DISPARAR</button
+          ><button data-action="emp">EMP</button
+          ><button data-action="exit">SALIR</button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
